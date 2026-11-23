@@ -51,6 +51,7 @@ func accessibleSelection(in pid: pid_t) -> String? {
 // A target with no selection can ignore Copy. Leave its original pasteboard untouched in that case.
 @MainActor
 func copiedSelection(from board: NSPasteboard, timeout: Duration = .milliseconds(350),
+                     poll: Duration = .milliseconds(10),
                      stillFocused: () -> Bool = { true }, postCopy: () -> Void) async throws -> String? {
     let original = board.changeCount
     let backup = snapshotPasteboard(board)
@@ -64,7 +65,7 @@ func copiedSelection(from board: NSPasteboard, timeout: Duration = .milliseconds
             restorePasteboard(board, backup)
         }
     }
-    repeat {
+    while true {
         guard stillFocused() else { throw CancellationError() }
         let current = board.changeCount
         if current != original {
@@ -74,9 +75,11 @@ func copiedSelection(from board: NSPasteboard, timeout: Duration = .milliseconds
                 return text
             }
         }
-        try await Task.sleep(for: .milliseconds(10))
-    } while clock.now < deadline
-    return nil
+        // 每一轮先看剪贴板、再判超时、判完才睡。反过来（睡完直接判超时退出）会漏掉
+        // 恰好在最后一段睡眠里落地的复制：慢机器上一次轮询就可能跨过截止时间
+        if clock.now >= deadline { return nil }
+        try await Task.sleep(for: poll)
+    }
 }
 
 @MainActor
