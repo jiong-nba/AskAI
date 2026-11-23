@@ -80,6 +80,11 @@ ad-hoc sign it, and attach it to a GitHub release with install steps that mentio
 (`defaults write` and `ASKAI_KEY`) plus a `--check` step. Update the Chinese release notes if the release is
 announced in Chinese.
 
+**Release assets must match their tag.** Build each asset from that tag's own source
+(`git worktree add /tmp/vX vX.Y.Z && cd /tmp/vX && swift build -c release`), never from the working tree
+of a later commit. Do not use `--clobber` on a published release to swap binaries: if the source moved on,
+cut a new version instead. Keep the tag message and release notes stating which source the asset was built from.
+
 ## Out of scope
 
 - App Store distribution (needs sandboxing and would break ⌘C simulation)
