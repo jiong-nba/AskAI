@@ -8,6 +8,7 @@ echo "==> swift build -c release"
 swift build -c release
 
 APP="AskAI.app"
+APP_VERSION="1.1.1"
 STAGE_DIR=$(mktemp -d "./.AskAI-build.XXXXXX")
 trap 'rm -rf "${STAGE_DIR}"' EXIT
 STAGED_APP="${STAGE_DIR}/${APP}"
@@ -15,7 +16,7 @@ echo "==> 组装 ${APP}"
 mkdir -p "${STAGED_APP}/Contents/MacOS"
 cp .build/release/AskAI "${STAGED_APP}/Contents/MacOS/AskAI"
 
-cat > "${STAGED_APP}/Contents/Info.plist" <<'EOF'
+cat > "${STAGED_APP}/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -25,8 +26,8 @@ cat > "${STAGED_APP}/Contents/Info.plist" <<'EOF'
     <key>CFBundleIdentifier</key>         <string>com.dsh.AskAI</string>
     <key>CFBundleExecutable</key>         <string>AskAI</string>
     <key>CFBundlePackageType</key>        <string>APPL</string>
-    <key>CFBundleShortVersionString</key> <string>1.0</string>
-    <key>CFBundleVersion</key>            <string>1</string>
+    <key>CFBundleShortVersionString</key> <string>${APP_VERSION}</string>
+    <key>CFBundleVersion</key>            <string>${APP_VERSION}</string>
     <key>LSMinimumSystemVersion</key>     <string>13.0</string>
     <key>LSUIElement</key>                <true/>
     <key>NSHighResolutionCapable</key>    <true/>
