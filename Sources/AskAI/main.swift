@@ -187,9 +187,37 @@ func makeHotKey(keyCode: UInt32, mods: NSEvent.ModifierFlags, handler: @escaping
 
 // MARK: - 1. 抓取选中文本：模拟 ⌘C → 读剪贴板 → 还原剪贴板
 
+/// 剪贴板快照：逐 item 保存全部类型的数据。
+/// 只备份 .string 会丢内容：图片会被清掉，富文本被降级成纯文本，多文件只剩一个。
+private struct PasteboardSnapshot {
+    let items: [[NSPasteboard.PasteboardType: Data]]
+}
+
+private func snapshotPasteboard(_ pb: NSPasteboard) -> PasteboardSnapshot? {
+    let items = (pb.pasteboardItems ?? []).compactMap { item -> [NSPasteboard.PasteboardType: Data]? in
+        var data: [NSPasteboard.PasteboardType: Data] = [:]
+        for type in item.types {
+            // 主动取数据会促使 lazy provider 立即产出；取不到的类型直接略过
+            if let d = item.data(forType: type) { data[type] = d }
+        }
+        return data.isEmpty ? nil : data
+    }
+    return items.isEmpty ? nil : PasteboardSnapshot(items: items)
+}
+
+private func restorePasteboard(_ pb: NSPasteboard, _ snapshot: PasteboardSnapshot?) {
+    pb.clearContents() // 清掉本次 ⌘C 复制进来的内容
+    guard let snapshot else { return }
+    pb.writeObjects(snapshot.items.map { data in
+        let item = NSPasteboardItem()
+        for (type, d) in data { item.setData(d, forType: type) }
+        return item
+    })
+}
+
 func selectedText() -> String? {
     let pb = NSPasteboard.general
-    let backup = pb.string(forType: .string) // 备份原有文本
+    let backup = snapshotPasteboard(pb) // 备份全部内容（含图片/富文本/多文件）
     pb.clearContents() // 先清空，避免读到旧内容
 
     let src = CGEventSource(stateID: .combinedSessionState)
@@ -206,8 +234,7 @@ func selectedText() -> String? {
     let text = pb.string(forType: .string)?
         .trimmingCharacters(in: .whitespacesAndNewlines)
 
-    pb.clearContents() // 还原剪贴板
-    if let backup { pb.setString(backup, forType: .string) }
+    restorePasteboard(pb, backup) // 还原剪贴板（全部类型）
 
     return (text?.isEmpty == false) ? text : nil
 }
