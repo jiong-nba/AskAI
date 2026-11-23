@@ -38,6 +38,7 @@ final class ResultPanel: NSPanel {
     private var sentCharacters = 0
     private var running: Task<Void, Never>?
     private var requestID = UUID()
+    private var spokenText = ""   // 未渲染的纯文本，供 TTS 使用（避免朗读 markdown 符号）
 
     /// 浮窗尺寸：默认 550×310；拖拽调整后记住（panelWidth/panelHeight），换小屏时按可见高度兜底
     static func panelSize(screenHeight: CGFloat? = NSScreen.main?.visibleFrame.height,
@@ -191,11 +192,39 @@ final class ResultPanel: NSPanel {
         if speaker.isSpeaking { speaker.stopSpeaking(at: .immediate) }
     }
 
+    /// 行内 Markdown 渲染：粗体 / 斜体 / 行内代码 / 链接，保留原有换行——
+    /// 聊天式回答不适合块级语法的段落重排；解析失败回落纯文本。
+    static func renderedAnswer(_ text: String, baseFont: NSFont) -> NSAttributedString {
+        let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        guard var parsed = try? AttributedString(markdown: text, options: options) else {
+            return NSAttributedString(string: text, attributes: [.font: baseFont])
+        }
+        // 解析结果不带字体（转 NSAttributedString 也不会自动把 .strong 变粗体），
+        // 按行内语义逐 run 套字体；无语义的片段拿基础字体，避免掉回系统默认字号
+        let runs = parsed.runs.map { (range: $0.range, intent: $0.inlinePresentationIntent ?? []) }
+        for (range, intent) in runs {
+            var font = baseFont
+            if intent.contains(.stronglyEmphasized) {   // **粗体**
+                font = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
+            }
+            if intent.contains(.emphasized) {           // *斜体*
+                font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)
+            }
+            if intent.contains(.code) {
+                font = NSFont.monospacedSystemFont(ofSize: baseFont.pointSize, weight: .regular)
+            }
+            parsed[range].font = font
+        }
+        return NSAttributedString(parsed)
+    }
+
     /// 更新答案文本。用户停在底部（或还没滚过）时跟随新内容滚动；
     /// 翻上去看前文时不再强行拉回。
     private func setAnswer(_ text: String) {
         let atBottom = textView.visibleRect.maxY >= textView.bounds.height - 48
-        textView.string = text
+        spokenText = text
+        textView.textStorage?.setAttributedString(
+            Self.renderedAnswer(text, baseFont: textView.font ?? .systemFont(ofSize: 14)))
         if atBottom { textView.scrollToEndOfDocument(nil) }
     }
 
@@ -227,8 +256,8 @@ final class ResultPanel: NSPanel {
 
     @objc private func speakAnswer() {
         if speaker.isSpeaking { speaker.stopSpeaking(at: .immediate); return }
-        let utterance = AVSpeechUtterance(string: textView.string)
-        let hasCJK = textView.string.unicodeScalars.contains { (0x4E00...0x9FFF).contains($0.value) }
+        let utterance = AVSpeechUtterance(string: spokenText)
+        let hasCJK = spokenText.unicodeScalars.contains { (0x4E00...0x9FFF).contains($0.value) }
         utterance.voice = AVSpeechSynthesisVoice(language: hasCJK ? "zh-CN" : "en-US")
         utterance.rate = 0.5
         speaker.speak(utterance)
