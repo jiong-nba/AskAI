@@ -267,6 +267,19 @@ final class ResultPanel: NSPanel {
     override func close() { cancelRequest(); super.close() }
     override func cancelOperation(_ sender: Any?) { close() }
 
+    /// ⌘C 复制回答：窗口显示时即成为 key window，无需先点按钮。
+    /// 若用户已用鼠标选中了部分文字，则放行给系统，复制的是选区。
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags == .command,
+           event.charactersIgnoringModifiers?.lowercased() == "c",
+           textView.selectedRange().length == 0 {
+            copyAnswer()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
     @objc private func copyAnswer() {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(textView.string, forType: .string)

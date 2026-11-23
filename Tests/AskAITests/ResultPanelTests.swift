@@ -135,6 +135,43 @@ struct ResultPanelTests {
         #expect(broken.length > 0)
     }
 
+    @Test @MainActor func commandCCopiesWholeAnswerWhenNothingSelected() throws {
+        _ = NSApplication.shared
+        let panel = ResultPanel(source: "idempotency") { _, _, _, _, _ in "答案文本" }
+        defer { panel.close() }
+        panel.show(HistoryEntry(time: Date(), mode: "explain", source: "idempotency", answer: "答案文本"))
+        let content = try #require(panel.contentView)
+        let view = try #require(descendants(content).compactMap { $0 as? NSTextView }.first)
+        view.setSelectedRange(NSRange(location: 0, length: 0))
+
+        let copy = try #require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0,
+            windowNumber: panel.windowNumber, context: nil,
+            characters: "c", charactersIgnoringModifiers: "c", isARepeat: false, keyCode: 8))
+
+        NSPasteboard.general.clearContents()
+        #expect(panel.performKeyEquivalent(with: copy))
+        #expect(NSPasteboard.general.string(forType: .string) == "答案文本")
+    }
+
+    @Test @MainActor func commandCLeavesSelectionToSystem() throws {
+        _ = NSApplication.shared
+        let panel = ResultPanel(source: "idempotency") { _, _, _, _, _ in "答案文本" }
+        defer { panel.close() }
+        panel.show(HistoryEntry(time: Date(), mode: "explain", source: "idempotency", answer: "答案文本"))
+        let content = try #require(panel.contentView)
+        let view = try #require(descendants(content).compactMap { $0 as? NSTextView }.first)
+        view.setSelectedRange(NSRange(location: 0, length: 2))
+
+        let copy = try #require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0,
+            windowNumber: panel.windowNumber, context: nil,
+            characters: "c", charactersIgnoringModifiers: "c", isARepeat: false, keyCode: 8))
+
+        // 有选区时不拦截，交给系统复制选区
+        #expect(panel.performKeyEquivalent(with: copy) == false)
+    }
+
     @Test @MainActor func answerUsesDynamicTextColorForDarkMode() throws {
         // 富文本若不带前景色，NSTextView 会按黑色渲染，深色模式下变成黑字黑底。
         // 要求每个片段都显式带上系统动态文字色（labelColor 随外观切换）。
