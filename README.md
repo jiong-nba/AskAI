@@ -57,6 +57,10 @@ Everything is stored in `defaults` — no code edits needed.
 | History | Edit `~/Library/Application Support/AskAI/history.json` |
 | UI language | `defaults write com.dsh.AskAI lang en` (or `zh`; default follows macOS) |
 
+Language fallback: any preferred system language other than Chinese falls back to the English UI,
+and the Translate mode targets English in that case (English input is translated into Simplified
+Chinese instead of being a no-op). Set `lang` explicitly if you want Chinese UI on a non-Chinese system.
+
 `ASKAI_KEY` (environment variable) takes precedence over `defaults`, which is convenient for scripts and debugging.
 
 ## Command line

@@ -56,6 +56,9 @@ open AskAI.app                                 # 菜单栏出现 🤖
 | 历史 | 编辑 `~/Library/Application Support/AskAI/history.json` |
 | 界面语言 | `defaults write com.dsh.AskAI lang zh`（或 `en`；默认跟随系统） |
 
+语言回落规则：系统首选语言不是中文时，界面回落到英文，此时「翻译」模式的目标语言是英文
+（若原文本身是英文，则译为简体中文，避免原样输出）。在非中文系统上想用中文界面，请显式设置 `lang`。
+
 环境变量 `ASKAI_KEY` 优先于 `defaults`，适合脚本与调试。
 
 ## 命令行
