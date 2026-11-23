@@ -246,6 +246,29 @@ struct ResultPanelTests {
         #expect(panel.performKeyEquivalent(with: try copyEvent(for: panel)) == false)
     }
 
+    // A reasoning model that only produced thinking before the stream failed keeps the trace on
+    // screen, above the error. Nothing is saved or copied from it.
+    @Test @MainActor func reasoningStaysVisibleWhenTheAnswerFails() async throws {
+        struct StreamFailed: Error {}
+        let board = isolatedPasteboard()
+        defer { board.releaseGlobally() }
+        let panel = ResultPanel(source: "idempotency", pasteboard: board) { _, _, _, delta, reasoning in
+            await reasoning?("thinking about it")
+            _ = delta
+            throw StreamFailed()
+        } save: { _, _, _, _ in
+            Issue.record("A failed request must not be saved")
+        }
+        defer { panel.close() }
+        await panel.request(mode: historyMode("explain"))?.value
+
+        let shown = try answerView(of: panel).string
+        #expect(shown.contains("thinking about it"))
+        #expect(shown.contains("❌"))
+        #expect(panel.performKeyEquivalent(with: try copyEvent(for: panel)))
+        #expect(board.string(forType: .string)?.contains("thinking") == false)
+    }
+
     // README: "history and copy keep the final answer"; issue #23: 思考过程仅供浏览。
     @Test @MainActor func copyKeepsOnlyTheFinalAnswerOfReasoningModels() async throws {
         _ = NSApplication.shared
