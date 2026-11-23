@@ -74,6 +74,8 @@ following multi-byte character into the variable name, which produces a confusin
 
 ## Release process
 
+Before tagging, set `APP_VERSION` in `make-app.sh` to the release version without the leading `v`.
+
 ```bash
 git tag v1.x.y && git push origin v1.x.y
 ```
