@@ -10,9 +10,18 @@ OpenAI-compatible endpoint, and streams the answer into a floating panel. CLI re
 ## Layout
 
 ```
-Sources/AskAI/main.swift   # menu, CLI, history, OCR and model requests
-Sources/AskAI/Selection.swift          # Accessibility and pasteboard capture
-Sources/AskAI/ResultPanel.swift        # per-selection requests and result controls
+Sources/AskAI/main.swift              # process entry: CLI dispatch, then the menu-bar run loop
+Sources/AskAI/AppDelegate.swift       # menu, hotkey recorder, panel and settings-window lifecycle
+Sources/AskAI/CLI.swift               # --check and --ask
+Sources/AskAI/Preferences.swift       # the shared `defaults` instance
+Sources/AskAI/Localization.swift      # L(zh, en)
+Sources/AskAI/PromptMode.swift        # built-in prompt modes
+Sources/AskAI/History.swift           # history.json storage and the cross-process lock
+Sources/AskAI/HotKeys.swift           # hotkey defaults and registration
+Sources/AskAI/ChatClient.swift        # chat completions request and SSE stream parsing
+Sources/AskAI/OCR.swift               # region capture and Vision OCR
+Sources/AskAI/Selection.swift         # Accessibility and pasteboard capture
+Sources/AskAI/ResultPanel.swift       # per-selection requests and result controls
 Sources/AskAI/ConnectionSettings.swift # live provider configuration and native settings
 Package.swift              # SwiftPM manifest, depends on HotKey
 make-app.sh                # builds a release binary and assembles AskAI.app (Info.plist + codesign)
@@ -73,10 +82,12 @@ Run `bash Tests/test_packaging.sh` after changing the packager. It checks signin
 
 - Swift 5.9+, macOS 13+ target, no force-unwraps except for compile-time literals (URL, key codes)
 - All UI work on the main thread; network work in `Task`, UI updates via `DispatchQueue.main.async` or `MainActor`
-- User-facing strings go through `L(zh:en:)`; never hardcode a single language in UI code. Docs are bilingual and must stay in sync
-- Split by responsibility, not by size: `main.swift` (menu, CLI, history, OCR, requests), `Selection.swift`
+- User-facing strings go through `L(zh, en)`; never hardcode a single language in UI code. Docs are bilingual and must stay in sync
+- Split by responsibility, not by size: `AppDelegate.swift` (menu, recorder, window lifecycle), `CLI.swift`,
+  `History.swift`, `HotKeys.swift`, `ChatClient.swift`, `OCR.swift`, `PromptMode.swift`, `Selection.swift`
   (capture), `ResultPanel.swift` (panel + per-selection requests), `ConnectionSettings.swift` (provider config
-  and settings UI). Add a new file rather than letting `main.swift` grow past ~900 lines
+  and settings UI). `main.swift` is only the entry point. Give a new responsibility its own file rather than
+  letting any file grow past ~900 lines
 - Comments explain *why*, not *what*
 
 ## Shell conventions
