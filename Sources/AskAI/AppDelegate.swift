@@ -81,7 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         refreshMenu()
 
         if !registerHotKey() { showHotKeyRegistrationFailure() }
-        if ConnectionSettings.current().apiKey.isEmpty { openSettings() }
+        if !ConnectionSettings.current().isConfigured { openSettings() }
         else { promptForAccessibilityIfNeeded() }
     }
 
@@ -222,7 +222,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
     private func ask() {
         guard !recording, !capturingSelection else { return }
-        guard !ConnectionSettings.current().apiKey.isEmpty else { openSettings(); return }
+        guard ConnectionSettings.current().isConfigured else { openSettings(); return }
         capturingSelection = true
         Task { @MainActor in
             defer { capturingSelection = false }
@@ -238,7 +238,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
     /// 截图选区 → OCR → 解释
     @objc private func askFromScreen() {
-        guard !ConnectionSettings.current().apiKey.isEmpty else { openSettings(); return }
+        guard ConnectionSettings.current().isConfigured else { openSettings(); return }
         guard let shot = captureRegion() else { return }   // 取消截图则静默返回
         guard let text = ocrText(from: shot) else {
             let alert = NSAlert()
@@ -377,7 +377,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         if window === settingsWindow {
             settingsWindow = nil
             lastPanel?.refreshSummaryLimit()
-            if !ConnectionSettings.current().apiKey.isEmpty { promptForAccessibilityIfNeeded() }
+            if ConnectionSettings.current().isConfigured { promptForAccessibilityIfNeeded() }
         }
         if window === recorderPanel {
             if let m = keyMonitor { NSEvent.removeMonitor(m); keyMonitor = nil }

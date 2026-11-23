@@ -60,9 +60,14 @@ func runAsk(arguments: [String]) -> Never {
                 fputs("warning: " + notice + "\n", stderr)
             }
 
+            print("---")
+            guard historySavingEnabled() else {
+                print(L("历史文件 : 已关闭（defaults write com.dsh.AskAI saveHistory false）",
+                        "history file : saving is disabled (defaults write com.dsh.AskAI saveHistory false)"))
+                exit(EXIT_SUCCESS)
+            }
             let attrs = try? FileManager.default.attributesOfItem(atPath: historyFile.path)
             let perms = (attrs?[.posixPermissions] as? NSNumber).map { String($0.intValue, radix: 8) }
-            print("---")
             print(L("历史文件 : ", "history file : ") + historyFile.path)
             print(L("文件权限 : ", "file mode    : ") + (perms ?? L("文件不存在", "missing")))
             print(L("记录条数 : ", "entries      : ") + "\(loadHistory().count)")

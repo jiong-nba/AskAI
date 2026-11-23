@@ -13,7 +13,7 @@ struct ChatTurn: Equatable {
 func askLLM(_ input: QueryInput, mode: PromptMode, connection: ConnectionSettings, context: [ChatTurn] = [],
             session: URLSession = .shared, onDelta: ((String) async -> Void)? = nil,
             onReasoning: ((String) async -> Void)? = nil) async throws -> String {
-    guard !connection.apiKey.isEmpty else {
+    guard connection.isConfigured else {
         throw AskError(L("未配置 API Key。请打开菜单栏设置或指定 ASKAI_KEY。",
                          "No API key configured. Open Settings in the menu bar or set ASKAI_KEY."))
     }
@@ -21,7 +21,10 @@ func askLLM(_ input: QueryInput, mode: PromptMode, connection: ConnectionSetting
     req.httpMethod = "POST"
     req.timeoutInterval = 60
     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    req.setValue("Bearer \(connection.apiKey)", forHTTPHeaderField: "Authorization")
+    // 本机接口（Ollama、LM Studio 等）没有 Key，也就不带 Authorization
+    if !connection.apiKey.isEmpty {
+        req.setValue("Bearer \(connection.apiKey)", forHTTPHeaderField: "Authorization")
+    }
 
     let streaming = onDelta != nil
     var messages: [[String: String]] = [["role": "system", "content": mode.system]]
