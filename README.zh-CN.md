@@ -50,7 +50,7 @@ open AskAI.app                                 # 菜单栏出现 🤖
 |---|---|
 | API Key | `defaults write com.dsh.AskAI apiKey sk-xxx` |
 | 模型 | `defaults write com.dsh.AskAI model deepseek-chat` |
-| 接口地址 | `defaults write com.dsh.AskAI baseURL "https://api.openai.com/v1/chat/completions"` |
+| 接口地址 | `defaults write com.dsh.AskAI baseURL "https://api.openai.com/v1/chat/completions"`（须为完整 `https://` 地址；填错时回落默认地址，`--check` 会提示） |
 | 快捷键 | 菜单 🤖 →「设置快捷键…」按键录制 |
 | 模式 | 菜单 🤖 →「模式」 |
 | 历史 | 编辑 `~/Library/Application Support/AskAI/history.json` |

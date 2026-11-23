@@ -28,8 +28,17 @@ let defaults = UserDefaults.standard
 let apiKey = ProcessInfo.processInfo.environment["ASKAI_KEY"]
     ?? defaults.string(forKey: "apiKey")
     ?? ""
-let apiURL = URL(string: defaults.string(forKey: "baseURL")
-                 ?? "https://api.deepseek.com/chat/completions")!  // 可换任意 OpenAI 兼容服务
+/// 解析 baseURL：非法（空串 / 缺 scheme / 缺 host）时回落默认地址，而不是启动即崩。
+/// 菜单栏 App 崩溃没有 Dock 图标、没有报错窗，用户只会看到「打不开」，无从排查；
+/// 所以这里兜底，把问题暴露给 --check 去报告。
+func resolveAPIURL(_ raw: String?) -> (url: URL, invalidRaw: String?) {
+    if let raw, !raw.isEmpty, let u = URL(string: raw), u.scheme != nil, u.host != nil {
+        return (u, nil)   // 可换任意 OpenAI 兼容服务
+    }
+    return (URL(string: "https://api.deepseek.com/chat/completions")!, raw)
+}
+
+let (apiURL, invalidBaseURL) = resolveAPIURL(defaults.string(forKey: "baseURL"))
 let model = defaults.string(forKey: "model") ?? "deepseek-chat"
 
 // MARK: - 本地化（中文 / English）
@@ -786,6 +795,10 @@ if CommandLine.arguments.contains("--check") {
     print(L("优先级           : env ASKAI_KEY > defaults apiKey", "precedence       : env ASKAI_KEY > defaults apiKey"))
     print(L("生效模型         : ", "model            : ") + model)
     print(L("接口地址         : ", "endpoint         : ") + apiURL.absoluteString)
+    if let bad = invalidBaseURL {
+        print(L("⚠️ baseURL 配置「\(bad)」无效（应为完整 https:// 地址），已回落默认地址",
+               "⚠️ configured baseURL '\(bad)' is invalid (expected a full https:// URL); using the default"))
+    }
     print(L("快捷键           : ", "hotkey           : ") + hotkeyText)
     print(L("界面语言         : ", "ui language      : ") + (appIsChinese ? "zh-CN" : "en"))
     print(L("辅助功能授权     : ", "accessibility    : ")
