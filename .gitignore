@@ -1,0 +1,13 @@
+# Swift 构建产物
+.build/
+.swiftpm/
+
+# 打包出来的 App（由 make-app.sh 生成）
+AskAI.app/
+
+# macOS
+.DS_Store
+
+# 本地临时文件
+*.pem
+*.p12
