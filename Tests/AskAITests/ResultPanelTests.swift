@@ -134,4 +134,23 @@ struct ResultPanelTests {
         let broken = ResultPanel.renderedAnswer("**未闭合的加粗", baseFont: base)
         #expect(broken.length > 0)
     }
+
+    @Test @MainActor func answerUsesDynamicTextColorForDarkMode() throws {
+        // 富文本若不带前景色，NSTextView 会按黑色渲染，深色模式下变成黑字黑底。
+        // 要求每个片段都显式带上系统动态文字色（labelColor 随外观切换）。
+        let base = NSFont.systemFont(ofSize: 14)
+        let expected = NSColor.textColor
+        for sample in ["**加粗** 与 `code` 及普通文字", "第一行普通中文\nSecond line", "**未闭合的加粗"] {
+            let rich = ResultPanel.renderedAnswer(sample, baseFont: base)
+            #expect(rich.length > 0)
+            var missing: [NSRange] = []
+            var mismatched: [NSRange] = []
+            rich.enumerateAttribute(.foregroundColor, in: NSRange(location: 0, length: rich.length)) { color, range, _ in
+                guard let color = color as? NSColor else { missing.append(range); return }
+                if color != expected { mismatched.append(range) }
+            }
+            #expect(missing.isEmpty)
+            #expect(mismatched.isEmpty)
+        }
+    }
 }

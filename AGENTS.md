@@ -41,10 +41,11 @@ open AskAI.app
    `sk-...` string and no personal absolute path (`/Users/<name>`) leaked into sources or docs.
 3. **Keep both READMEs in sync.** Any user-visible change (flag, config key, feature) must land in
    `README.md` and `README.zh-CN.md`, and in the release notes of the next tag.
-4. **Do not grow the dependency list without a reason.** The app's selling point is being small. Measured
-   baseline at v1.1.1 (Apple Silicon, release build): binary ~570 KB, bundle ~580 KB, resident ~45 MB.
-   Treat roughly 1 MB of bundle size and 60 MB of RSS as the ceiling — anything approaching that needs a
-   justification. Anything that ships assets (dictionary data, OCR models, fonts) is out of scope.
+4. **Do not grow the dependency list without a reason.** The app's selling point is being small. The
+   durable limits are **~1 MB bundle** and **~60 MB resident**; approaching either needs a justification.
+   For orientation only — a snapshot, not a target: at v1.1.1 (Apple Silicon, release build) the bundle was
+   ~580 KB and RSS ~45 MB. Re-measure (`du -sh AskAI.app`, `ps -o rss=`) instead of trusting these numbers;
+   they will drift. Anything that ships assets (dictionary data, OCR models, fonts) is out of scope.
 
 ## Verifying a change
 

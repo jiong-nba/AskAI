@@ -88,6 +88,7 @@ final class ResultPanel: NSPanel {
         textView.textContainer?.widthTracksTextView = true
         textView.textContainerInset = NSSize(width: 8, height: 6)
         textView.font = .systemFont(ofSize: 14)
+        textView.textColor = .textColor        // 同样是动态色，避免深色模式下黑字黑底
         scroll.documentView = textView
         let copy = NSButton(title: L("复制", "Copy"), target: self, action: #selector(copyAnswer))
         let speak = NSButton(title: L("朗读", "Speak"), target: self, action: #selector(speakAnswer))
@@ -210,7 +211,9 @@ final class ResultPanel: NSPanel {
     static func renderedAnswer(_ text: String, baseFont: NSFont) -> NSAttributedString {
         let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
         guard var parsed = try? AttributedString(markdown: text, options: options) else {
-            return NSAttributedString(string: text, attributes: [.font: baseFont])
+            return NSAttributedString(string: text,
+                                      attributes: [.font: baseFont,
+                                                   .foregroundColor: NSColor.textColor])
         }
         // 解析结果不带字体（转 NSAttributedString 也不会自动把 .strong 变粗体），
         // 按行内语义逐 run 套字体；无语义的片段拿基础字体，避免掉回系统默认字号
@@ -227,6 +230,9 @@ final class ResultPanel: NSPanel {
                 font = NSFont.monospacedSystemFont(ofSize: baseFont.pointSize, weight: .regular)
             }
             parsed[range].font = font
+            // 富文本缺省不带前景色时 NSTextView 会按黑色渲染，深色模式下变成黑字黑底；
+            // 显式给系统动态文字色，随明暗外观自动切换
+            parsed[range].foregroundColor = .textColor
         }
         return NSAttributedString(parsed)
     }
