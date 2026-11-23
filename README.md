@@ -31,7 +31,7 @@ Lightweight (~300 KB on disk, ~22 MB resident), no Dock icon, native Swift, sing
 git clone https://github.com/jiong-nba/AskAI.git
 cd AskAI
 ./make-app.sh                                  # build + bundle into AskAI.app
-defaults write com.dsh.AskAI apiKey sk-你的密钥  # or export ASKAI_KEY=sk-...
+defaults write com.dsh.AskAI apiKey sk-YOUR-KEY  # or export ASKAI_KEY=sk-...
 open AskAI.app                                 # 🤖 appears in the menu bar
 ./AskAI.app/Contents/MacOS/AskAI --check       # sanity check: key, endpoint, permission
 ```
@@ -55,6 +55,7 @@ Everything is stored in `defaults` — no code edits needed.
 | Hotkey | Menu 🤖 → "Set Hotkey…" and press the combination |
 | Mode | Menu 🤖 → "Mode" |
 | History | Edit `~/Library/Application Support/AskAI/history.json` |
+| UI language | `defaults write com.dsh.AskAI lang en` (or `zh`; default follows macOS) |
 
 `ASKAI_KEY` (environment variable) takes precedence over `defaults`, which is convenient for scripts and debugging.
 
@@ -73,16 +74,19 @@ and whether Accessibility is granted. Use it first whenever something does not w
 
 ```
 bundle id        : com.dsh.AskAI
-defaults 域      : com.dsh.AskAI   ← UserDefaults.standard reads here
-env ASKAI_KEY    : 未设置
-defaults apiKey  : 已设置(35 字符)
-生效模型         : deepseek-chat
-接口地址         : https://api.deepseek.com/chat/completions
-快捷键           : ⌘⇧E
-辅助功能授权     : 已授权
+defaults domain  : com.dsh.AskAI
+env ASKAI_KEY    : not set
+defaults apiKey  : set (35 chars)
+precedence       : env ASKAI_KEY > defaults apiKey
+model            : deepseek-chat
+endpoint         : https://api.deepseek.com/chat/completions
+hotkey           : ⌘⇧E
+ui language      : en
+accessibility    : granted
 ```
 
-If it reports `未设置` for both key sources while you believe you configured one, the app is reading a
+Output follows the UI language (`defaults write com.dsh.AskAI lang zh` for Chinese).
+If it reports `not set` for both key sources while you believe you configured one, the app is reading a
 different domain — check `bundle id` against the domain you wrote to.
 
 ### `--ask "<text>"`
@@ -95,12 +99,12 @@ Useful as a smoke test, or as a plain CLI tool.
 ```
 
 ```
-**节流**：限制操作执行频率的机制……
+Idempotency means an operation can be repeated without changing the result...
 ---
-历史文件 : /Users/you/Library/Application Support/AskAI/history.json
-文件权限 : 600（600 = 仅本人可读）
-记录条数 : 1
-可解析   : 是（JSON 往返正常）
+history file : /Users/you/Library/Application Support/AskAI/history.json
+file mode    : 600
+entries      : 1
+json round-trip : ok
 ```
 
 The reply follows whichever mode is currently selected (`defaults write com.dsh.AskAI mode translate` to change it).
@@ -158,7 +162,7 @@ tccutil reset Accessibility com.dsh.AskAI
 - Text that cannot be copied (protected views, password fields) falls back to OCR, which is lossy
 - A few apps copy slowly; raise the delay in `selectedText()` if needed
 - Requests are capped at 2000 characters of source text (truncated with a marker)
-- UI strings are currently Chinese; English localization is not done yet
+- UI and CLI output are bilingual (zh/en), chosen from the system language at launch; changing `lang` requires a restart
 
 ## Contributing
 

@@ -32,6 +32,19 @@ let apiURL = URL(string: defaults.string(forKey: "baseURL")
                  ?? "https://api.deepseek.com/chat/completions")!  // 可换任意 OpenAI 兼容服务
 let model = defaults.string(forKey: "model") ?? "deepseek-chat"
 
+// MARK: - 本地化（中文 / English）
+// 默认跟随系统首选语言；可用 defaults write com.dsh.AskAI lang en 强制切换。
+
+let appIsChinese: Bool = {
+    if let forced = defaults.string(forKey: "lang"), !forced.isEmpty {
+        return forced.lowercased().hasPrefix("zh")
+    }
+    return Locale.preferredLanguages.first?.hasPrefix("zh") ?? false
+}()
+
+/// 双语取词：中文环境返回 zh，否则返回 en
+func L(_ zh: String, _ en: String) -> String { appIsChinese ? zh : en }
+
 /// 单次请求最多发送的字符数（含 OCR 结果），防止超长文本超出上下文
 let maxSourceChars = 2000
 
@@ -44,26 +57,52 @@ struct PromptMode {
 }
 
 let promptModes: [PromptMode] = [
-    PromptMode(key: "explain", title: "解释名词",
-               system: "你是名词/术语解释助手，读者有计算机/数据库/软件工程背景。用户给出的通常是一个名词、术语或一小段文字。"
-                     + "请用简体中文解释：如果原文是英文单词或术语，开头先给出它的中文翻译或对应说法；"
-                     + "然后用一句话说清它是什么，再补充关键背景、机制或一个例子。"
-                     + "技术术语优先按其领域含义解释（有歧义时点明），但不要预设具体技术栈、产品名或内部语境。"
-                     + "不要翻译腔。控制在 150 字以内。"),
-    PromptMode(key: "translate", title: "翻译",
-               system: "你是翻译助手。把用户给出的文本翻译成简体中文；若原文本身是中文，则翻译成英文。"
-                     + "只输出译文，不要解释、不要加引号或前缀。专业术语按通行译法。"),
-    PromptMode(key: "summarize", title: "总结要点",
-               system: "你是摘要助手。用简体中文概括用户文本的核心要点，最多 3 条，每条一行，以「• 」开头。"
-                     + "保留关键数字与结论，删除铺垫和重复。不要输出原文。"),
-    PromptMode(key: "code", title: "解释代码",
-               system: "你是代码讲解助手。用简体中文解释用户给出的代码：先说它整体做什么，"
-                     + "再按执行顺序说明关键语句的作用，最后指出可能的坑或副作用。控制在 200 字以内。"),
+    PromptMode(key: "explain",
+               title: L("解释名词", "Explain"),
+               system: L(
+                 "你是名词/术语解释助手，读者有计算机/数据库/软件工程背景。用户给出的通常是一个名词、术语或一小段文字。"
+               + "请用简体中文解释：如果原文是英文单词或术语，开头先给出它的中文翻译或对应说法；"
+               + "然后用一句话说清它是什么，再补充关键背景、机制或一个例子。"
+               + "技术术语优先按其领域含义解释（有歧义时点明），但不要预设具体技术栈、产品名或内部语境。"
+               + "不要翻译腔。控制在 150 字以内。",
+                 "You explain terms for an engineer with a computer science / database / software engineering background. "
+               + "The user usually gives a single term or a short phrase. Start with a one-line plain definition, "
+               + "then add the key mechanism or a concrete example. Prefer the technical meaning of the term and call out "
+               + "ambiguity when it exists, but do not assume a specific stack, product or private context. "
+               + "Keep it under 120 words. Answer in English.")),
+    PromptMode(key: "translate",
+               title: L("翻译", "Translate"),
+               system: L(
+                 "你是翻译助手。把用户给出的文本翻译成简体中文；若原文本身是中文，则翻译成英文。"
+               + "只输出译文，不要解释、不要加引号或前缀。专业术语按通行译法。",
+                 "You are a translator. Translate the user's text into English; if it is already English, translate it "
+               + "into Simplified Chinese. Output the translation only — no explanations, quotes or prefixes. "
+               + "Use conventional terminology.")),
+    PromptMode(key: "summarize",
+               title: L("总结要点", "Summarize"),
+               system: L(
+                 "你是摘要助手。用简体中文概括用户文本的核心要点，最多 3 条，每条一行，以「• 」开头。"
+               + "保留关键数字与结论，删除铺垫和重复。不要输出原文。",
+                 "You summarize. Give at most 3 bullet points, one per line, each starting with \"• \". "
+               + "Keep key numbers and conclusions, drop filler and repetition. Do not restate the source. "
+               + "Answer in English.")),
+    PromptMode(key: "code",
+               title: L("解释代码", "Explain Code"),
+               system: L(
+                 "你是代码讲解助手。用简体中文解释用户给出的代码：先说它整体做什么，"
+               + "再按执行顺序说明关键语句的作用，最后指出可能的坑或副作用。控制在 200 字以内。",
+                 "You explain code. Start with what it does overall, then walk through the key statements in "
+               + "execution order, and finish with pitfalls or side effects. Keep it under 160 words. Answer in English.")),
 ]
 
 func currentMode() -> PromptMode {
     let key = defaults.string(forKey: "mode") ?? "explain"
     return promptModes.first { $0.key == key } ?? promptModes[0]
+}
+
+/// 历史里存的是模式 key，显示时再本地化；旧数据存的是标题，原样返回
+func modeTitle(forKey key: String) -> String {
+    promptModes.first { $0.key == key || $0.title == key }?.title ?? key
 }
 
 // MARK: - 历史记录
@@ -98,7 +137,7 @@ func saveHistory(_ entries: [HistoryEntry]) {
         try FileManager.default.setAttributes([.posixPermissions: 0o600],
                                              ofItemAtPath: historyFile.path)
     } catch {
-        NSLog("AskAI: 保存历史失败 \(error.localizedDescription)")
+        NSLog("AskAI: failed to save history: \(error.localizedDescription)")
     }
 }
 
@@ -179,14 +218,14 @@ func askLLM(_ text: String, mode: PromptMode, onDelta: ((String) -> Void)? = nil
     guard !apiKey.isEmpty else {
         throw NSError(domain: "AskAI", code: 0,
                       userInfo: [NSLocalizedDescriptionKey:
-                            "未配置 API Key。请执行：defaults write com.dsh.AskAI apiKey sk-你的密钥，"
-                          + "然后重启本 App（或改用环境变量 ASKAI_KEY）"])
+                            L("未配置 API Key。请执行：defaults write com.dsh.AskAI apiKey sk-你的密钥，然后重启本 App（或改用环境变量 ASKAI_KEY）",
+                            "No API key configured. Run: defaults write com.dsh.AskAI apiKey sk-YOUR-KEY, then restart AskAI (or set ASKAI_KEY).")])
     }
 
     // 超长文本（常见于截图 OCR）先截断，避免超出上下文
     var user = text
     if user.count > maxSourceChars {
-        user = String(user.prefix(maxSourceChars)) + "\n…（后文已截断）"
+        user = String(user.prefix(maxSourceChars)) + L("\n…（后文已截断）", "\n…(truncated)")
     }
 
     var req = URLRequest(url: apiURL)
@@ -213,14 +252,14 @@ func askLLM(_ text: String, mode: PromptMode, onDelta: ((String) -> Void)? = nil
         guard code == 200 else {
             let errBody = String(data: data, encoding: .utf8) ?? ""
             throw NSError(domain: "AskAI", code: code,
-                          userInfo: [NSLocalizedDescriptionKey: "API 出错 (\(code)): \(errBody.prefix(200))"])
+                          userInfo: [NSLocalizedDescriptionKey: L("API 出错 (\(code)): \(errBody.prefix(200))", "API error (\(code)): \(errBody.prefix(200))")])
         }
         let root = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         let choices = root?["choices"] as? [[String: Any]]
         let message = choices?.first?["message"] as? [String: Any]
         guard let content = message?["content"] as? String, !content.isEmpty else {
             throw NSError(domain: "AskAI", code: 2,
-                          userInfo: [NSLocalizedDescriptionKey: "响应里没有 content"])
+                          userInfo: [NSLocalizedDescriptionKey: L("响应里没有 content", "Response contained no content")])
         }
         return content
     }
@@ -238,7 +277,7 @@ func askLLM(_ text: String, mode: PromptMode, onDelta: ((String) -> Void)? = nil
             if raw.count > 300 || lines > 20 { break }
         }
         throw NSError(domain: "AskAI", code: code,
-                      userInfo: [NSLocalizedDescriptionKey: "API 出错 (\(code)): \(raw.prefix(200))"])
+                      userInfo: [NSLocalizedDescriptionKey: L("API 出错 (\(code)): \(raw.prefix(200))", "API error (\(code)): \(raw.prefix(200))")])
     }
 
     var full = ""
@@ -257,7 +296,7 @@ func askLLM(_ text: String, mode: PromptMode, onDelta: ((String) -> Void)? = nil
     }
     guard !full.isEmpty else {
         throw NSError(domain: "AskAI", code: 2,
-                      userInfo: [NSLocalizedDescriptionKey: "流式响应没有内容"])
+                      userInfo: [NSLocalizedDescriptionKey: L("流式响应没有内容", "Empty streaming response")])
     }
     return full
 }
@@ -328,7 +367,7 @@ func makePanel(selected: String) -> NSPanel {
                             styleMask: [.titled, .closable, .nonactivatingPanel],
                             backing: .buffered, defer: false)
     panel.level = .floating
-    panel.title = "AI 解释：\(short)"
+    panel.title = L("AI 解释：\(short)", "AskAI: \(short)")
     panel.isMovableByWindowBackground = true
     panel.becomesKeyOnlyIfNeeded = false   // 让它能立即响应 Esc
 
@@ -348,13 +387,13 @@ func makePanel(selected: String) -> NSPanel {
     container.addSubview(scroll)
 
     // 底部按钮：复制 / 朗读
-    let copyBtn = NSButton(title: "复制", target: panel, action: #selector(ResultPanel.copyResult))
+    let copyBtn = NSButton(title: L("复制", "Copy"), target: panel, action: #selector(ResultPanel.copyResult))
     copyBtn.bezelStyle = .rounded
     copyBtn.frame = NSRect(x: W - 80, y: 6, width: 68, height: 24)
     copyBtn.autoresizingMask = [.minXMargin]
     container.addSubview(copyBtn)
 
-    let speakBtn = NSButton(title: "朗读", target: panel, action: #selector(ResultPanel.speakResult))
+    let speakBtn = NSButton(title: L("朗读", "Speak"), target: panel, action: #selector(ResultPanel.speakResult))
     speakBtn.bezelStyle = .rounded
     speakBtn.frame = NSRect(x: W - 154, y: 6, width: 68, height: 24)
     speakBtn.autoresizingMask = [.minXMargin]
@@ -392,7 +431,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         statusItem?.button?.title = "🤖"
 
         let menu = NSMenu()
-        let info = NSMenuItem(title: "选中文字后按 \(hotkeyDesc) 询问 AI", action: nil, keyEquivalent: "")
+        let info = NSMenuItem(title: L("选中文字后按 \(hotkeyDesc) 询问 AI", "Select text, then press \(hotkeyDesc)"), action: nil, keyEquivalent: "")
         infoItem = info
         menu.addItem(info)
         menu.addItem(.separator())
@@ -405,40 +444,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             it.representedObject = m.key
             modeMenu.addItem(it)
         }
-        let modeItem = NSMenuItem(title: "模式", action: nil, keyEquivalent: "")
+        let modeItem = NSMenuItem(title: L("模式", "Mode"), action: nil, keyEquivalent: "")
         modeItem.submenu = modeMenu
         menu.addItem(modeItem)
 
         // 历史记录（子菜单，点条目直接回看）
-        let histItem = NSMenuItem(title: "历史记录", action: nil, keyEquivalent: "")
+        let histItem = NSMenuItem(title: L("历史记录", "History"), action: nil, keyEquivalent: "")
         histItem.submenu = NSMenu()
         menu.addItem(histItem)
 
         menu.addItem(.separator())
 
-        let setHotkey = NSMenuItem(title: "设置快捷键…（当前 \(hotkeyDesc)）",
+        let setHotkey = NSMenuItem(title: L("设置快捷键…（当前 \(hotkeyDesc)）", "Set Hotkey… (now \(hotkeyDesc))"),
                                    action: #selector(openRecorder), keyEquivalent: "")
         setHotkey.target = self
         setHotkeyItem = setHotkey
         menu.addItem(setHotkey)
 
-        let shot = NSMenuItem(title: "截图解释…（图片里的文字）",
+        let shot = NSMenuItem(title: L("截图解释…（图片里的文字）", "Explain from Screen… (text in images)"),
                               action: #selector(askFromScreen), keyEquivalent: "")
         shot.target = self
         menu.addItem(shot)
 
         // 重启：同一二进制重开，不会丢辅助功能授权（重建才会丢）
-        let restart = NSMenuItem(title: "重启 AskAI", action: #selector(relaunch), keyEquivalent: "r")
+        let restart = NSMenuItem(title: L("重启 AskAI", "Restart AskAI"), action: #selector(relaunch), keyEquivalent: "r")
         restart.target = self
         menu.addItem(restart)
 
-        let auth = NSMenuItem(title: "打开辅助功能设置…",
+        let auth = NSMenuItem(title: L("打开辅助功能设置…", "Open Accessibility Settings…"),
                               action: #selector(openAccessibilitySettings), keyEquivalent: "")
         auth.target = self
         menu.addItem(auth)
 
         menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "退出", action: #selector(NSApplication.terminate(_:)),
+        menu.addItem(NSMenuItem(title: L("退出", "Quit"), action: #selector(NSApplication.terminate(_:)),
                                keyEquivalent: "q"))
         statusItem?.menu = menu
         menu.delegate = self
@@ -454,15 +493,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         guard let menu = statusItem?.menu else { return }
         let cur = currentMode().key
         for item in menu.items where item.submenu !== statusItem?.menu {
-            if let sub = item.submenu, item.title == "模式" {
+            if let sub = item.submenu, item.title == L("模式", "Mode") {
                 for m in sub.items { m.state = (m.representedObject as? String) == cur ? .on : .off }
             }
         }
-        if let hist = menu.items.first(where: { $0.title == "历史记录" })?.submenu {
+        if let hist = menu.items.first(where: { $0.title == L("历史记录", "History") })?.submenu {
             hist.removeAllItems()
             let list = loadHistory()
             if list.isEmpty {
-                let empty = NSMenuItem(title: "（暂无记录）", action: nil, keyEquivalent: "")
+                let empty = NSMenuItem(title: L("（暂无记录）", "(none)"), action: nil, keyEquivalent: "")
                 empty.isEnabled = false
                 hist.addItem(empty)
             } else {
@@ -474,8 +513,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                     it.tag = i
                     hist.addItem(it)
                 }
-                hist.addItem(.separator())
-                let clear = NSMenuItem(title: "清空历史", action: #selector(clearHistory), keyEquivalent: "")
+                hist.addItem(NSMenuItem.separator())
+                let clear = NSMenuItem(title: L("清空历史", "Clear History"), action: #selector(clearHistory), keyEquivalent: "")
                 clear.target = self
                 hist.addItem(clear)
             }
@@ -496,7 +535,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         let panel = makePanel(selected: h.source)
         panel.delegate = self
         lastPanel = panel
-        panel.title = "\(currentMode().title)｜历史：\(h.source.prefix(20))"
+        panel.title = L("\(modeTitle(forKey: h.mode))｜历史：\(h.source.prefix(20))", "\(modeTitle(forKey: h.mode)) | History: \(h.source.prefix(20))")
         setPanelText(panel, h.answer)
         panel.makeKeyAndOrderFront(nil)
         startEscMonitor()
@@ -556,8 +595,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     private func registerHotKey() {
-        infoItem?.title = "选中文字后按 \(hotkeyDesc) 询问 AI"
-        setHotkeyItem?.title = "设置快捷键…（当前 \(hotkeyDesc)）"
+        infoItem?.title = L("选中文字后按 \(hotkeyDesc) 询问 AI", "Select text, then press \(hotkeyDesc)")
+        setHotkeyItem?.title = L("设置快捷键…（当前 \(hotkeyDesc)）", "Set Hotkey… (now \(hotkeyDesc))")
         let code = UInt32(defaults.object(forKey: "hotkeyKey") as? Int ?? Int(defaultHotKeyCode))
         let raw = UInt(defaults.object(forKey: "hotkeyMods") as? Int ?? Int(defaultHotKeyMods))
         let mods = NSEvent.ModifierFlags(rawValue: raw)
@@ -577,9 +616,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         guard let shot = captureRegion() else { return }   // 用户取消截图
         guard let text = ocrText(from: shot) else {
             let alert = NSAlert()
-            alert.messageText = "没有识别到文字"
-            alert.informativeText = "既没有取到选中文本，截图里也没识别出文字。"
-                + "请确认本 App 已在「隐私与安全性 → 辅助功能」中被勾选。"
+            alert.messageText = L("没有识别到文字", "No text found")
+            alert.informativeText = L("既没有取到选中文本，截图里也没识别出文字。请确认本 App 已在「隐私与安全性 → 辅助功能」中被勾选。",
+                                      "Could not read a selection, and no text was recognized in the screenshot. Check that AskAI is enabled in System Settings → Privacy & Security → Accessibility.")
             alert.runModal()
             return
         }
@@ -591,8 +630,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         guard let shot = captureRegion() else { return }   // 取消截图则静默返回
         guard let text = ocrText(from: shot) else {
             let alert = NSAlert()
-            alert.messageText = "没有识别到文字"
-            alert.informativeText = "选区内未检测到可识别的文本，请重新框选。"
+            alert.messageText = L("没有识别到文字", "No text found")
+            alert.informativeText = L("选区内未检测到可识别的文本，请重新框选。", "No recognizable text in that region. Try selecting it again.")
             alert.runModal()
             return
         }
@@ -606,7 +645,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         panel.delegate = self
         lastPanel = panel
         panel.title = "\(mode.title)：\(source.prefix(30))"
-        setPanelText(panel, "思考中…")
+        setPanelText(panel, L("思考中…", "Thinking…"))
         panel.makeKeyAndOrderFront(nil)
         startEscMonitor()
 
@@ -616,7 +655,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 let answer = try await askLLM(source, mode: mode) { full in
                     DispatchQueue.main.async { setPanelText(panel, full) }
                 }
-                appendHistory(mode: mode.title, source: source, answer: answer)
+                appendHistory(mode: mode.key, source: source, answer: answer)
             } catch {
                 await MainActor.run { setPanelText(panel, "❌ \(error.localizedDescription)") }
             }
@@ -631,12 +670,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 400, height: 140),
                             styleMask: [.titled, .closable],
                             backing: .buffered, defer: false)
-        panel.title = "设置快捷键"
+        panel.title = L("设置快捷键", "Set Hotkey")
         panel.level = .floating
         panel.isReleasedWhenClosed = false
         panel.delegate = self
 
-        let label = NSTextField(labelWithString: "按下新的快捷键组合\n需至少包含一个修饰键，Esc 取消")
+        let label = NSTextField(labelWithString: L("按下新的快捷键组合\n需至少包含一个修饰键，Esc 取消", "Press the new shortcut\nAt least one modifier is required; Esc to cancel"))
         label.alignment = .center
         label.font = .systemFont(ofSize: 14)
         label.frame = NSRect(x: 20, y: 20, width: 360, height: 90)
@@ -667,7 +706,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         guard !mods.isEmpty else { return nil }                  // 至少一个修饰键
         guard Key(carbonKeyCode: UInt32(code)) != nil else {     // 该键不受支持就提示，不改配置
             (recorderPanel?.contentView?.subviews.first as? NSTextField)?.stringValue =
-                "这个按键暂不支持，请换一个组合"
+                L("这个按键暂不支持，请换一个组合", "That key is not supported; try another combination")
             return nil
         }
 
@@ -693,7 +732,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         if let chars = event.charactersIgnoringModifiers, !chars.isEmpty {
             return chars.uppercased()
         }
-        return "键\(event.keyCode)"
+        return L("键\(event.keyCode)", "Key\(event.keyCode)")
     }
 
     private func closeRecorder() {
@@ -735,18 +774,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 // 用来确认「defaults 里写的 Key」和「App 实际读的域」是同一个，避免静默失效。
 
 if CommandLine.arguments.contains("--check") {
-    let bundleID = Bundle.main.bundleIdentifier ?? "(未在 .app 内运行)"
+    let bundleID = Bundle.main.bundleIdentifier ?? L("(未在 .app 内运行)", "(not running inside a .app)")
     let envKey = ProcessInfo.processInfo.environment["ASKAI_KEY"]
     let defaultsKey = defaults.string(forKey: "apiKey")
-    print("bundle id        : \(bundleID)")
-    print("defaults 域      : \(bundleID)   ← UserDefaults.standard 即读这里")
-    print("env ASKAI_KEY    : \(envKey == nil ? "未设置" : "已设置(\(envKey!.count) 字符)")")
-    print("defaults apiKey  : \(defaultsKey == nil ? "未设置" : "已设置(\(defaultsKey!.count) 字符)")")
-    print("优先级           : env ASKAI_KEY > defaults com.dsh.AskAI/apiKey")
-    print("生效模型         : \(model)")
-    print("接口地址         : \(apiURL.absoluteString)")
-    print("快捷键           : \(hotkeyText)（菜单栏 🤖 →「设置快捷键…」可改）")
-    print("辅助功能授权     : \(AXIsProcessTrusted() ? "已授权" : "未授权（模拟 ⌘C 会失败）")")
+    let yes = L("已设置", "set")
+    let no  = L("未设置", "not set")
+    print(L("bundle id        : ", "bundle id        : ") + bundleID)
+    print(L("defaults 域      : ", "defaults domain  : ") + bundleID)
+    print("env ASKAI_KEY    : " + (envKey == nil ? no : "\(yes) (\(envKey!.count) chars)"))
+    print("defaults apiKey  : " + (defaultsKey == nil ? no : "\(yes) (\(defaultsKey!.count) chars)"))
+    print(L("优先级           : env ASKAI_KEY > defaults apiKey", "precedence       : env ASKAI_KEY > defaults apiKey"))
+    print(L("生效模型         : ", "model            : ") + model)
+    print(L("接口地址         : ", "endpoint         : ") + apiURL.absoluteString)
+    print(L("快捷键           : ", "hotkey           : ") + hotkeyText)
+    print(L("界面语言         : ", "ui language      : ") + (appIsChinese ? "zh-CN" : "en"))
+    print(L("辅助功能授权     : ", "accessibility    : ")
+          + (AXIsProcessTrusted() ? L("已授权", "granted") : L("未授权（模拟 ⌘C 会失败）", "NOT granted (⌘C simulation will fail)")))
     exit(0)
 }
 
@@ -761,17 +804,17 @@ if let i = CommandLine.arguments.firstIndex(of: "--ask"), i + 1 < CommandLine.ar
         do {
             let answer = try await askLLM(question, mode: mode)
             print(answer)
-            appendHistory(mode: mode.title, source: question, answer: answer)
+            appendHistory(mode: mode.key, source: question, answer: answer)
 
             let attrs = try? FileManager.default.attributesOfItem(atPath: historyFile.path)
             let perms = (attrs?[.posixPermissions] as? NSNumber).map { String($0.intValue, radix: 8) }
             print("---")
-            print("历史文件 : \(historyFile.path)")
-            print("文件权限 : \(perms ?? "文件不存在")（600 = 仅本人可读）")
-            print("记录条数 : \(loadHistory().count)")
-            print("可解析   : \(readHistoryFile().isEmpty ? "否" : "是（JSON 往返正常）")")
+            print(L("历史文件 : ", "history file : ") + historyFile.path)
+            print(L("文件权限 : ", "file mode    : ") + (perms ?? L("文件不存在", "missing")))
+            print(L("记录条数 : ", "entries      : ") + "\(loadHistory().count)")
+            print(L("可解析   : ", "json round-trip : ") + (readHistoryFile().isEmpty ? L("否", "failed") : L("是", "ok")))
         } catch {
-            print("错误: \(error.localizedDescription)")
+            print(L("错误: ", "error: ") + error.localizedDescription)
         }
         sem.signal()
     }

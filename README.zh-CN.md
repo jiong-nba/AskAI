@@ -54,6 +54,7 @@ open AskAI.app                                 # 菜单栏出现 🤖
 | 快捷键 | 菜单 🤖 →「设置快捷键…」按键录制 |
 | 模式 | 菜单 🤖 →「模式」 |
 | 历史 | 编辑 `~/Library/Application Support/AskAI/history.json` |
+| 界面语言 | `defaults write com.dsh.AskAI lang zh`（或 `en`；默认跟随系统） |
 
 环境变量 `ASKAI_KEY` 优先于 `defaults`，适合脚本与调试。
 
@@ -142,7 +143,7 @@ tccutil reset Accessibility com.dsh.AskAI
 - 不可复制的文本（受保护界面、密码框）靠截图 OCR 兜底，识别有损失
 - 部分 App 复制较慢，可在 `selectedText()` 里调大等待时间
 - 单次请求最多发送 2000 字符（超出截断并标注）
-- 界面文案目前为中文，尚未做英文界面
+- 界面与命令行输出支持中英双语，启动时按系统语言选择；改 `lang` 后需重启 App
 
 ## 参与开发
 
