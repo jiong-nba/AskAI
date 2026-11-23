@@ -25,7 +25,7 @@ Native Swift menu-bar app with no Dock icon.
 - **Resizable** — drag to resize the result panel; the size is remembered
 - **Markdown rendering** — bold, italic, inline code and links in answers are rendered (block syntax shown verbatim)
 - **Reasoning models** — the thinking trace (reasoning_content, e.g. deepseek-reasoner) streams above the answer; history and copy keep the final answer
-- **Custom hotkey** — record it right in the menu
+- **Custom hotkey** — record it right in the menu; the recorder tells you when another app already uses the combination
 - **Any OpenAI-compatible endpoint** — DeepSeek, OpenAI, Ollama, etc.
 
 ## Quick start
