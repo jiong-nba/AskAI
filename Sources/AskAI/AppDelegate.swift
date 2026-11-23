@@ -2,13 +2,12 @@ import AppKit
 import ApplicationServices
 import Carbon
 import Darwin
-import HotKey
 
 // MARK: - 4. 菜单栏常驻 + 全局快捷键（快捷键可在菜单里自己录）
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelegate {
-    private var hotKey: HotKey?
+    private let hotKeySlot = HotKeySlot()
     private var statusItem: NSStatusItem?   // 必须强引用！局部变量会被立即释放，图标就没了
     private var infoItem: NSMenuItem?
     private var setHotkeyItem: NSMenuItem?
@@ -82,7 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         menu.delegate = self
         refreshMenu()
 
-        registerHotKey()
+        if !registerHotKey() { showHotKeyRegistrationFailure() }
         if ConnectionSettings.current().apiKey.isEmpty { openSettings() }
         else { promptForAccessibilityIfNeeded() }
     }
@@ -198,15 +197,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         _ = AXIsProcessTrustedWithOptions(options)
     }
 
-    private func registerHotKey() {
+    /// 注册全局快捷键。返回 false 表示没注册上（被其他应用占用或按键不受支持）。
+    @discardableResult
+    private func registerHotKey() -> Bool {
         infoItem?.title = L("选中文字后按 \(hotkeyDesc) 询问 AI", "Select text, then press \(hotkeyDesc)")
         setHotkeyItem?.title = L("设置快捷键…（当前 \(hotkeyDesc)）", "Set Hotkey… (now \(hotkeyDesc))")
-        let code = UInt32(defaults.object(forKey: "hotkeyKey") as? Int ?? Int(defaultHotKeyCode))
-        let raw = UInt(defaults.object(forKey: "hotkeyMods") as? Int ?? Int(defaultHotKeyMods))
-        let mods = NSEvent.ModifierFlags(rawValue: raw)
-        hotKey = makeHotKey(keyCode: code, mods: mods) { [weak self] in
+        let current = configuredHotKey()
+        return hotKeySlot.bind(keyCode: current.code, mods: current.mods) { [weak self] in
             self?.ask()
         }
+    }
+
+    /// 快捷键没注册上要明说，别让用户对着“按了没反应”猜。
+    private func showHotKeyRegistrationFailure() {
+        let alert = NSAlert()
+        alert.messageText = L("快捷键 \(hotkeyDesc) 未能注册", "Hotkey \(hotkeyDesc) could not be registered")
+        alert.informativeText = L("它可能已被其他应用占用，或这个按键不受支持。请到菜单栏 🤖 →「设置快捷键…」换一个组合。",
+                                  "It may already be taken by another app, or the key is not supported. Choose another combination via 🤖 → Set Hotkey….")
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
     }
 
     private var capturingSelection = false
@@ -298,19 +307,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
         let mods = event.modifierFlags.intersection([.command, .option, .control, .shift])
         guard !mods.isEmpty else { return nil }                  // 至少一个修饰键
-        guard Key(carbonKeyCode: UInt32(code)) != nil else {     // 该键不受支持就提示，不改配置
-            (recorderPanel?.contentView?.subviews.first as? NSTextField)?.stringValue =
-                L("这个按键暂不支持，请换一个组合", "That key is not supported; try another combination")
-            return nil
+        let takenMessage = L("这个组合已被其他应用占用，请换一个",
+                             "This shortcut is already taken by another app; try another combination")
+        switch HotKeyRecording.outcome(keyCode: UInt32(code), mods: mods, current: configuredHotKey()) {
+        case .unsupported:   // 该键不受支持就提示，不改配置
+            showRecorderMessage(L("这个按键暂不支持，请换一个组合", "That key is not supported; try another combination"))
+        case .unchanged:
+            closeRecorder()
+        case .taken:
+            showRecorderMessage(takenMessage)
+        case .accepted:
+            let previous = configuredHotKey()
+            let previousDesc = hotkeyDesc
+            saveHotKey(code: UInt32(code), mods: mods, desc: modifierSymbols(mods) + keyLabel(event))
+            if registerHotKey() {
+                closeRecorder()
+            } else {
+                // 探测之后、注册之前被别的应用抢走了：配置和绑定都退回原样
+                saveHotKey(code: previous.code, mods: previous.mods, desc: previousDesc)
+                registerHotKey()
+                showRecorderMessage(takenMessage)
+            }
         }
+        return nil
+    }
 
-        let desc = modifierSymbols(mods) + keyLabel(event)
+    private func saveHotKey(code: UInt32, mods: NSEvent.ModifierFlags, desc: String) {
         defaults.set(Int(code), forKey: "hotkeyKey")
         defaults.set(Int(mods.rawValue), forKey: "hotkeyMods")
         defaults.set(desc, forKey: "hotkeyDesc")
-        registerHotKey()
-        closeRecorder()
-        return nil
+    }
+
+    private func showRecorderMessage(_ text: String) {
+        (recorderPanel?.contentView?.subviews.first as? NSTextField)?.stringValue = text
     }
 
     private func modifierSymbols(_ mods: NSEvent.ModifierFlags) -> String {
