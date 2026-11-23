@@ -156,7 +156,9 @@ tccutil reset Accessibility com.dsh.AskAI
 
 - **API key** lives in `defaults` (`~/Library/Preferences/com.dsh.AskAI.plist`), plain text, local only
 - **History** lives in `~/Library/Application Support/AskAI/history.json`, permissions `0600`, max 20 entries;
-  concurrent CLI and menu-bar queries share the same 20 entries. Use "History → Clear History" to delete them
+  concurrent CLI and menu-bar queries share the same 20 entries. Use "History → Clear History" to delete them.
+  If the file cannot be read (for example after an interrupted hand edit), it is moved aside as
+  `history.corrupt-<timestamp>.json` and a fresh one is started; the panel and `--ask` say so when that happens
 - Selected text is sent only to the endpoint you configured; the app collects nothing
 
 ## How it works

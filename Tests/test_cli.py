@@ -107,6 +107,34 @@ class CLITests(unittest.TestCase):
         self.assertEqual(history[8:], old[:12])
         self.assertEqual(stat.S_IMODE(self.history.stat().st_mode), 0o600)
 
+    def assert_broken_history_is_moved_aside(self):
+        """A history.json that cannot be read must not block every later save."""
+        result = self.ask("question")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines()[0], "question")
+        self.assertIn("warning:", result.stderr)
+        self.assertIn("history.corrupt-", result.stderr)
+        # The answer is saved into a fresh, private history.json.
+        self.assertEqual([entry["source"] for entry in json.loads(self.history.read_text())], ["question"])
+        self.assertEqual(stat.S_IMODE(self.history.stat().st_mode), 0o600)
+        # The unreadable original is kept next to it for the user to inspect.
+        backups = list(self.history.parent.glob("history.corrupt-*.json"))
+        self.assertEqual(len(backups), 1, backups)
+        return backups[0]
+
+    def test_truncated_history_is_moved_aside(self):
+        self.history.parent.mkdir(parents=True)
+        # e.g. a hand edit that was interrupted
+        self.history.write_text('[{"time":0,"mode":"explain","source":"old","ans')
+        self.assert_broken_history_is_moved_aside()
+
+    def test_unreadable_history_is_moved_aside(self):
+        self.history.parent.mkdir(parents=True)
+        self.history.write_text(json.dumps([dict(time=0, mode="explain", source="old", answer="saved")]))
+        self.history.chmod(0)
+        backup = self.assert_broken_history_is_moved_aside()
+        backup.chmod(0o600)   # so the temporary profile can be cleaned up
+
 
 if __name__ == "__main__":
     unittest.main()
