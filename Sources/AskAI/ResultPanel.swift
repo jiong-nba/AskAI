@@ -39,16 +39,27 @@ final class ResultPanel: NSPanel {
     private var running: Task<Void, Never>?
     private var requestID = UUID()
 
+    /// 浮窗尺寸：默认 550×310；拖拽调整后记住（panelWidth/panelHeight），换小屏时按可见高度兜底
+    static func panelSize(screenHeight: CGFloat? = NSScreen.main?.visibleFrame.height,
+                          defaults: UserDefaults = .standard) -> NSSize {
+        let width = max(420, CGFloat(defaults.object(forKey: "panelWidth") as? Int ?? 550))
+        var height = max(220, CGFloat(defaults.object(forKey: "panelHeight") as? Int ?? 310))
+        if let screenHeight, screenHeight > 240 { height = min(height, screenHeight - 20) }
+        return NSSize(width: width, height: height)
+    }
+
     init(source: String, send: @escaping Send = { try await askLLM($0, mode: $1, connection: $2, onDelta: $3) }, save: @escaping Save = appendHistory) {
         self.source = source
         self.total = source.count
         self.send = send
         self.save = save
-        super.init(contentRect: NSRect(x: 0, y: 0, width: 550, height: 310),
+        super.init(contentRect: NSRect(origin: .zero, size: Self.panelSize()),
                    styleMask: [.titled, .closable, .nonactivatingPanel], backing: .buffered, defer: false)
         isReleasedWhenClosed = false
         level = .floating
         becomesKeyOnlyIfNeeded = false
+        styleMask.insert(.resizable)   // 可拖拽调整；尺寸在 windowDidEndLiveResize 里记住
+        minSize = NSSize(width: 420, height: 220)
         title = String(source.prefix(40))
         for mode in PromptMode.all {
             modePicker.addItem(withTitle: mode.title)

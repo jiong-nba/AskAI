@@ -21,6 +21,7 @@ Native Swift menu-bar app with no Dock icon.
 - **Read aloud** — system TTS, picks a Chinese or English voice automatically
 - **Copy result** — one click
 - **Near the cursor** — the panel opens next to the selection instead of screen center
+- **Resizable** — drag to resize the result panel; the size is remembered
 - **Custom hotkey** — record it right in the menu
 - **Any OpenAI-compatible endpoint** — DeepSeek, OpenAI, Ollama, etc.
 

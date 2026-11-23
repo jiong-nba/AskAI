@@ -83,4 +83,23 @@ struct ResultPanelTests {
         let corner = ResultPanel.nearMouseOrigin(mouse: NSPoint(x: 2, y: 3), panelSize: size, visible: visible)
         #expect(corner.x >= visible.minX + 8 - 0.5 && corner.y >= visible.minY + 8 - 0.5)
     }
+
+    @Test @MainActor func panelSizeRemembersResizeAndClampsToScreen() throws {
+        let name = "AskAI.panelSize.tests"
+        let suite = try #require(UserDefaults(suiteName: name))
+        suite.removePersistentDomain(forName: name)
+        defer { suite.removePersistentDomain(forName: name) }
+        // 无记录 → 默认尺寸
+        #expect(ResultPanel.panelSize(screenHeight: 900, defaults: suite) == NSSize(width: 550, height: 310))
+        // 记住用户拖拽结果
+        suite.set(800, forKey: "panelWidth")
+        suite.set(600, forKey: "panelHeight")
+        #expect(ResultPanel.panelSize(screenHeight: 900, defaults: suite) == NSSize(width: 800, height: 600))
+        // 换小屏：高度按可见区兜底，宽度不变
+        #expect(ResultPanel.panelSize(screenHeight: 500, defaults: suite) == NSSize(width: 800, height: 480))
+        // 脏数据不低于 minSize
+        suite.set(100, forKey: "panelWidth")
+        suite.set(50, forKey: "panelHeight")
+        #expect(ResultPanel.panelSize(screenHeight: 900, defaults: suite) == NSSize(width: 420, height: 220))
+    }
 }
