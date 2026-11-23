@@ -24,7 +24,7 @@ struct ResultPanelTests {
         let (stale, signalStale) = AsyncStream<Bool>.makeStream()
         let (saved, signalSave) = AsyncStream<HistoryEntry>.makeStream()
         let defaultMode = currentMode().key
-        let panel = ResultPanel(source: source) { input, mode, _, delta in
+        let panel = ResultPanel(source: source) { input, mode, _, delta, _ in
             if mode.key == "translate" {
                 signalStart.yield(())
                 do { try await Task.sleep(for: .seconds(10)) } catch {}

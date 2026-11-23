@@ -217,7 +217,8 @@ func makeHotKey(keyCode: UInt32, mods: NSEvent.ModifierFlags, handler: @escaping
 // MARK: - 2. 调用 LLM（OpenAI Chat Completions 格式）
 
 func askLLM(_ input: QueryInput, mode: PromptMode, connection: ConnectionSettings,
-            session: URLSession = .shared, onDelta: ((String) async -> Void)? = nil) async throws -> String {
+            session: URLSession = .shared, onDelta: ((String) async -> Void)? = nil,
+            onReasoning: ((String) async -> Void)? = nil) async throws -> String {
     guard !connection.apiKey.isEmpty else {
         throw AskError(L("未配置 API Key。请打开菜单栏设置或指定 ASKAI_KEY。",
                          "No API key configured. Open Settings in the menu bar or set ASKAI_KEY."))
@@ -275,15 +276,18 @@ func askLLM(_ input: QueryInput, mode: PromptMode, connection: ConnectionSetting
                           userInfo: [NSLocalizedDescriptionKey: L("API 出错 (\(code)): \(raw.prefix(200))", "API error (\(code)): \(raw.prefix(200))")])
         }
 
-        return try await readChatStream(bytes.lines, onDelta: onDelta)
+        return try await readChatStream(bytes.lines, onDelta: onDelta, onReasoning: onReasoning)
     } onCancel: {
         bytes.task.cancel()
     }
 }
 
-func readChatStream<Lines: AsyncSequence>(_ lines: Lines, onDelta: (String) async -> Void) async throws -> String
+func readChatStream<Lines: AsyncSequence>(_ lines: Lines,
+                                          onDelta: (String) async -> Void,
+                                          onReasoning: ((String) async -> Void)? = nil) async throws -> String
 where Lines.Element == String {
     var full = ""
+    var reasoning = ""
     var finished = false
     for try await line in lines {
         try Task.checkCancellation()
@@ -301,9 +305,17 @@ where Lines.Element == String {
                 message ?? L("服务端报告流式请求失败", "The server reported a streaming error")])
         }
         guard let choices = obj?["choices"] as? [[String: Any]], let choice = choices.first else { continue }
-        if let delta = choice["delta"] as? [String: Any], let piece = delta["content"] as? String, !piece.isEmpty {
-            full += piece
-            await onDelta(full)
+        if let delta = choice["delta"] as? [String: Any] {
+            // 推理模型（deepseek-reasoner 等）先流式输出思考过程，正文随后；分开累计，
+            // onReasoning 只用于浮窗实时展示，返回值与历史仍只含正文
+            if let thought = delta["reasoning_content"] as? String, !thought.isEmpty {
+                reasoning += thought
+                await onReasoning?(reasoning)
+            }
+            if let piece = delta["content"] as? String, !piece.isEmpty {
+                full += piece
+                await onDelta(full)
+            }
         }
         if let reason = choice["finish_reason"] as? String, !reason.isEmpty {
             guard reason == "stop" else {
