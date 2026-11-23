@@ -25,8 +25,12 @@ class FixtureAPI(BaseHTTPRequestHandler):
         question = request["messages"][-1]["content"]
         if self.server.barrier:
             self.server.barrier.wait(timeout=10)
-        reply = json.dumps({"choices": [{"message": {"content": question}}]}).encode()
-        self.send_response(200)
+        if self.server.status == 200:
+            body = {"choices": [{"message": {"content": question}}]}
+        else:
+            body = {"error": {"message": "fixture rejected the request"}}
+        reply = json.dumps(body).encode()
+        self.send_response(self.server.status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(reply)))
         self.end_headers()
@@ -44,14 +48,46 @@ class CLITests(unittest.TestCase):
         self.env = dict(os.environ, CFFIXED_USER_HOME=profile.name, ASKAI_KEY="fixture")
         self.server = FixtureServer(("127.0.0.1", 0), FixtureAPI)
         self.server.barrier = None
+        self.server.status = 200
         self.addCleanup(self.server.server_close)
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.addCleanup(self.server.shutdown)
 
-    def ask(self, question):
+    def cli(self, *args):
         url = f"http://127.0.0.1:{self.server.server_port}"
-        return subprocess.run([BINARY, "-lang", "en", "-baseURL", url, "--ask", question],
+        return subprocess.run([BINARY, "-lang", "en", "-baseURL", url, *args],
                               capture_output=True, text=True, env=self.env, timeout=20)
+
+    def ask(self, question):
+        return self.cli("--ask", question)
+
+    def test_http_failure(self):
+        self.server.status = 401
+        result = self.ask("question")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("401", result.stderr)
+        self.assertFalse(self.history.exists())
+
+    def test_missing_key(self):
+        self.env["ASKAI_KEY"] = ""
+        result = self.ask("question")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("No API key", result.stderr)
+
+    def test_missing_question(self):
+        result = self.cli("--ask")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("--ask", result.stderr)
+
+    def test_success(self):
+        result = self.ask("fixture answer")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stderr, "")
+        self.assertEqual(result.stdout.splitlines()[0], "fixture answer")
+        self.assertIn("json round-trip : ok", result.stdout)
 
     def test_concurrent_history(self):
         old = [dict(time=i, mode="explain", source=f"old-{i}", answer="saved")
