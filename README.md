@@ -20,7 +20,7 @@ Native Swift menu-bar app with no Dock icon.
 - **Screenshot OCR** — if no text can be read from the selection, it falls back to a screen-region capture and Vision OCR
 - **History** — last 20 entries, reopen any from the menu
 - **Read aloud** — system TTS, picks a Chinese or English voice automatically
-- **Copy result** — one click
+- **Copy result** — press ⌘C in the panel (or click Copy); with text selected, ⌘C copies the selection
 - **Near the cursor** — the panel opens next to the selection instead of screen center
 - **Resizable** — drag to resize the result panel; the size is remembered
 - **Markdown rendering** — bold, italic, inline code and links in answers are rendered (block syntax shown verbatim)
