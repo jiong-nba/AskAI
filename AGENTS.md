@@ -81,6 +81,22 @@ Run `bash Tests/test_packaging.sh` after changing the packager. It checks signin
 `make-app.sh` uses `set -euo pipefail`. Always write variables as `${NAME}` — bash merges the first byte of a
 following multi-byte character into the variable name, which produces a confusing `unbound variable` error.
 
+## Workflow
+
+All changes land through a pull request — no direct commits to `main`:
+
+```bash
+git checkout -b fix/short-topic       # feat/, fix/, chore/, docs/
+# ...edit, commit...
+git push -u origin HEAD
+gh pr create --fill                   # or --title/--body
+gh pr merge --squash --delete-branch  # self-merge is allowed; no approvals required
+```
+
+`main` is protected: direct pushes are rejected by the server, so a local `git push origin main` fails
+instead of silently bypassing review. Never force-push `main`. Keep each PR focused — a behavioural fix
+and a documentation change belong in separate commits (ideally separate PRs).
+
 ## Release process
 
 Before tagging, set `APP_VERSION` in `make-app.sh` to the release version without the leading `v`.
