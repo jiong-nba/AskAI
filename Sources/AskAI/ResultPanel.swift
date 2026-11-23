@@ -23,7 +23,7 @@ struct QueryInput {
 
 @MainActor
 final class ResultPanel: NSPanel {
-    typealias Send = (QueryInput, PromptMode, ConnectionSettings, ((String) async -> Void)?) async throws -> String
+    typealias Send = (QueryInput, PromptMode, ConnectionSettings, ((String) async -> Void)?, ((String) async -> Void)?) async throws -> String
     typealias Save = (String, String, String, Int?) throws -> Void
 
     private let source: String
@@ -39,6 +39,7 @@ final class ResultPanel: NSPanel {
     private var running: Task<Void, Never>?
     private var requestID = UUID()
     private var spokenText = ""   // 未渲染的纯文本，供 TTS 使用（避免朗读 markdown 符号）
+    private var latestReasoning = ""   // 推理模型本次请求的思考过程（仅浮窗展示用）
 
     /// 浮窗尺寸：默认 550×310；拖拽调整后记住（panelWidth/panelHeight），换小屏时按可见高度兜底
     static func panelSize(screenHeight: CGFloat? = NSScreen.main?.visibleFrame.height,
@@ -49,7 +50,7 @@ final class ResultPanel: NSPanel {
         return NSSize(width: width, height: height)
     }
 
-    init(source: String, send: @escaping Send = { try await askLLM($0, mode: $1, connection: $2, onDelta: $3) }, save: @escaping Save = appendHistory) {
+    init(source: String, send: @escaping Send = { try await askLLM($0, mode: $1, connection: $2, onDelta: $3, onReasoning: $4) }, save: @escaping Save = appendHistory) {
         self.source = source
         self.total = source.count
         self.send = send
@@ -160,16 +161,22 @@ final class ResultPanel: NSPanel {
         title = "\(mode.title) · \(source.prefix(40))"
         updateControls(mode: mode, sent: input.sent, limit: connection.summaryLimit)
         setAnswer(L("思考中…", "Thinking…"))
+        latestReasoning = ""
         running = Task {
             var partial = ""
             do {
-                let answer = try await send(input, mode, connection) { [weak self] text in
+                let answer = try await send(input, mode, connection,
+                                            { [weak self] text in
                     guard let self, self.requestID == id else { return }
                     partial = text
-                    self.setAnswer(text)
-                }
+                    self.setAnswer(self.displayed(text))
+                }, { [weak self] text in
+                    guard let self, self.requestID == id else { return }
+                    self.latestReasoning = text
+                    self.setAnswer(self.displayed(partial))
+                })
                 guard requestID == id else { return }
-                setAnswer(answer)
+                setAnswer(displayed(answer))
                 // Accept completion on the main actor before handing persistence to the file lock.
                 let (save, source) = (self.save, self.source)
                 await Task.detached {
@@ -179,7 +186,7 @@ final class ResultPanel: NSPanel {
             } catch {
                 guard requestID == id else { return }
                 setAnswer(partial.isEmpty ? "❌ \(error.localizedDescription)"
-                    : partial + "\n\n⚠️ " + L("回答中断", "Answer interrupted") + " — " + error.localizedDescription)
+                    : displayed(partial) + "\n\n⚠️ " + L("回答中断", "Answer interrupted") + " — " + error.localizedDescription)
             }
         }
         return running
@@ -190,6 +197,12 @@ final class ResultPanel: NSPanel {
         running?.cancel()
         running = nil
         if speaker.isSpeaking { speaker.stopSpeaking(at: .immediate) }
+    }
+
+    /// 思考过程只影响浮窗显示（拼在正文上方）；历史保存与命令行输出仍只用正文
+    private func displayed(_ content: String) -> String {
+        guard !latestReasoning.isEmpty else { return content }
+        return L("💭 思考过程", "💭 Reasoning") + "\n" + latestReasoning + "\n\n————\n\n" + content
     }
 
     /// 行内 Markdown 渲染：粗体 / 斜体 / 行内代码 / 链接，保留原有换行——

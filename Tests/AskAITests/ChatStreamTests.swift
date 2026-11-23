@@ -32,4 +32,20 @@ struct ChatStreamTests {
             }
         }
     }
+
+    @Test func reasoningStreamsSeparatelyFromContent() async throws {
+        let think1 = #"data: {"choices":[{"delta":{"reasoning_content":"先想"}}]}"#
+        let think2 = #"data: {"choices":[{"delta":{"reasoning_content":"想完"}}]}"#
+        var reasoning: [String] = []
+        var updates: [String] = []
+        let answer = try await readChatStream(lines([think1, think2, content, stop])) {
+            updates.append($0)
+        } onReasoning: {
+            reasoning.append($0)
+        }
+        // 返回值只有正文；思考过程经 onReasoning 增量推送，不混入 onDelta
+        #expect(answer == "hello")
+        #expect(reasoning == ["先想", "先想想完"])
+        #expect(updates == ["hello"])
+    }
 }
