@@ -180,6 +180,23 @@ final class ResultPanel: NSPanel {
         if speaker.isSpeaking { speaker.stopSpeaking(at: .immediate) }
     }
 
+    /// 面板出现在鼠标附近时的原点，clamp 在所在屏幕可见区内（纯函数，便于测试）
+    static func nearMouseOrigin(mouse: NSPoint, panelSize: NSSize, visible: NSRect) -> NSPoint {
+        // 偏右下方，不挡住光标；贴边时收回可见区内
+        var origin = NSPoint(x: mouse.x + 20, y: mouse.y - panelSize.height * 0.4)
+        origin.x = min(max(origin.x, visible.minX + 8), visible.maxX - panelSize.width - 8)
+        origin.y = min(max(origin.y, visible.minY + 8), visible.maxY - panelSize.height - 8)
+        return origin
+    }
+
+    /// 划词的结果应靠近触发点弹出，而不是每次都回到屏幕正中
+    func showNearMouse() {
+        let mouse = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main
+        guard let visible = screen?.visibleFrame else { center(); return }
+        setFrameOrigin(Self.nearMouseOrigin(mouse: mouse, panelSize: frame.size, visible: visible))
+    }
+
     override func close() { cancelRequest(); super.close() }
     override func cancelOperation(_ sender: Any?) { close() }
 

@@ -69,4 +69,18 @@ struct ResultPanelTests {
         signalSave.finish()
         #expect(await history.next() == nil)
     }
+
+    @Test @MainActor func nearMouseOriginClampsToVisibleFrame() {
+        let size = NSSize(width: 550, height: 310)
+        let visible = NSRect(x: 0, y: 0, width: 1440, height: 900)
+        // 鼠标在屏幕中部：面板偏右下方弹出，不挡光标
+        let middle = ResultPanel.nearMouseOrigin(mouse: NSPoint(x: 700, y: 450), panelSize: size, visible: visible)
+        #expect(middle.x == 720 && middle.y == 326)
+        // 鼠标贴右缘：收回可见区内
+        let right = ResultPanel.nearMouseOrigin(mouse: NSPoint(x: 1430, y: 450), panelSize: size, visible: visible)
+        #expect(right.x <= visible.maxX - size.width - 8 + 0.5)
+        // 鼠标在左下角：不越出可见区
+        let corner = ResultPanel.nearMouseOrigin(mouse: NSPoint(x: 2, y: 3), panelSize: size, visible: visible)
+        #expect(corner.x >= visible.minX + 8 - 0.5 && corner.y >= visible.minY + 8 - 0.5)
+    }
 }

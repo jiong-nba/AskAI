@@ -602,7 +602,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         let panel = ResultPanel(source: source)
         panel.delegate = self
         lastPanel = panel
-        panel.center()
+        panel.showNearMouse()
         panel.makeKeyAndOrderFront(nil)
         startEscMonitor()
         return panel
