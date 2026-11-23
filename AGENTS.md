@@ -49,6 +49,9 @@ open AskAI.app
 
 ## Verifying a change
 
+GitHub Actions (`.github/workflows/ci.yml`) runs the checks below on every push and pull request; a PR is
+ready to merge only when that run is green.
+
 Run `swift test --disable-xctest` with Swift 6+ to check streaming completion and interruption.
 After a release build, run `python3 Tests/test_cli.py` to exercise the CLI against a local fixture with isolated history.
 
