@@ -1,62 +1,119 @@
-# AskAI —— macOS 划词问 AI 菜单栏小工具
+# AskAI — Ask AI about any selected text on macOS
 
-在任意 App 里**选中文字 → 按快捷键 → 浮窗流式显示 AI 解释**。
-轻量（约 300 KB / 22 MB 内存），无 Dock 图标，纯原生 Swift，单文件核心代码。
+A tiny menu-bar app for macOS: **select text anywhere → press a hotkey → a floating window streams an explanation from your LLM**.
 
-> 不是翻译工具：解释模式会先用中文说清这个词是什么，再补背景与例子。
-> 也提供翻译、总结、代码讲解三种模式。
+Lightweight (~300 KB on disk, ~22 MB resident), no Dock icon, native Swift, single-file core.
 
-## 功能
+> Not a translation tool. The default *Explain* mode tells you what a term means in plain Chinese,
+> then adds context and an example. Three more modes are included: Translate, Summarize, Explain Code.
 
-- **划词解释**：选中文字 → 快捷键 → 流式逐字显示
-- **四种模式**：解释名词 / 翻译 / 总结要点 / 解释代码（菜单切换，记住选择）
-- **截图 OCR**：取不到选中文本时自动降级为框选截图，用 Vision 识别后解释
-- **历史记录**：最近 20 条，菜单里点回看
-- **朗读结果**：系统 TTS，中文/英文自动选嗓音
-- **结果可复制**：浮窗「复制」按钮
-- **快捷键自定义**：菜单里直接按键录制
-- **兼容任意 OpenAI 格式接口**：DeepSeek / OpenAI / 本地 Ollama 等
+**Languages:** English | [简体中文](README.zh-CN.md)
 
-## 快速开始
+## Features
 
-需要 macOS 13+ 与 Swift 工具链（安装 Xcode Command Line Tools 即可）。
+- **Explain selection** — select text, press the hotkey, watch the answer stream in
+- **Four modes** — Explain / Translate / Summarize / Explain Code (switch from the menu, remembered)
+- **Screenshot OCR** — if no text can be read from the selection, it falls back to a screen-region capture and Vision OCR
+- **History** — last 20 entries, reopen any from the menu
+- **Read aloud** — system TTS, picks a Chinese or English voice automatically
+- **Copy result** — one click
+- **Custom hotkey** — record it right in the menu
+- **Any OpenAI-compatible endpoint** — DeepSeek, OpenAI, Ollama, etc.
+
+## Requirements
+
+- macOS 13 or later
+- Swift toolchain (install Xcode Command Line Tools)
+
+## Quick start
 
 ```bash
-git clone <this-repo>
+git clone https://github.com/jiong-nba/AskAI.git
 cd AskAI
-./make-app.sh                       # 编译并打包成 AskAI.app
-defaults write com.dsh.AskAI apiKey sk-你的密钥
-open AskAI.app                      # 菜单栏出现 🤖
-./AskAI.app/Contents/MacOS/AskAI --check   # 自检：确认 Key 与授权状态
+./make-app.sh                                  # build + bundle into AskAI.app
+defaults write com.dsh.AskAI apiKey sk-你的密钥  # or export ASKAI_KEY=sk-...
+open AskAI.app                                 # 🤖 appears in the menu bar
+./AskAI.app/Contents/MacOS/AskAI --check       # sanity check: key, endpoint, permission
 ```
 
-**首次必须授权**（模拟 ⌘C 取选中文本需要）：
+**Grant Accessibility permission once** (required to read the selection by simulating ⌘C):
 
-> 系统设置 → 隐私与安全性 → 辅助功能 → ➕ 添加 `AskAI.app` → 打开开关
+> System Settings → Privacy & Security → Accessibility → ➕ add `AskAI.app` → toggle on
 
-不授权时：取词会失败，但会自动降级为截图 OCR（Vision 不需要该权限）。
+Without it, text capture fails and the app falls back to screenshot OCR
+(Vision OCR does not need this permission). See [Signing & permissions](#signing--why-your-grant-keeps-resetting).
 
-## 配置（全部走 `defaults`，无需改代码）
+## Configuration
 
-| 配置项 | 命令 |
+Everything is stored in `defaults` — no code edits needed.
+
+| What | Command |
 |---|---|
-| API Key | `defaults write com.dsh.AskAI apiKey sk-xxx` |
-| 模型 | `defaults write com.dsh.AskAI model deepseek-chat` |
-| 接口地址 | `defaults write com.dsh.AskAI baseURL "https://api.openai.com/v1/chat/completions"` |
-| 快捷键 | 菜单 🤖 →「设置快捷键…」按键录制 |
-| 模式 | 菜单 🤖 →「模式」 |
-| 历史 | `defaults read com.dsh.AskAI history` |
+| API key | `defaults write com.dsh.AskAI apiKey sk-xxx` |
+| Model | `defaults write com.dsh.AskAI model deepseek-chat` |
+| Endpoint | `defaults write com.dsh.AskAI baseURL "https://api.openai.com/v1/chat/completions"` |
+| Hotkey | Menu 🤖 → "Set Hotkey…" and press the combination |
+| Mode | Menu 🤖 → "Mode" |
+| History | Edit `~/Library/Application Support/AskAI/history.json` |
 
-环境变量 `ASKAI_KEY` 优先于 `defaults`（方便命令行调试）。
+`ASKAI_KEY` (environment variable) takes precedence over `defaults`, which is convenient for scripts and debugging.
 
-## 签名与授权持久性（重要）
+## Command line
 
-macOS 按**代码签名**识别 App。ad-hoc 签名每次重建都会变，导致辅助功能授权失效。
+Two flags are available on the bundled binary (or via `swift run -- --check`):
 
-本工具支持用**自签证书**签名，让授权一次长期有效：
+### `--check`
+
+Prints what the app actually sees: bundle id, defaults domain, key source, endpoint, model, hotkey,
+and whether Accessibility is granted. Use it first whenever something does not work.
 
 ```bash
-# 1. 创建自签代码签名证书（命令行，一次性）
+./AskAI.app/Contents/MacOS/AskAI --check
+```
+
+```
+bundle id        : com.dsh.AskAI
+defaults 域      : com.dsh.AskAI   ← UserDefaults.standard reads here
+env ASKAI_KEY    : 未设置
+defaults apiKey  : 已设置(35 字符)
+生效模型         : deepseek-chat
+接口地址         : https://api.deepseek.com/chat/completions
+快捷键           : ⌘⇧E
+辅助功能授权     : 已授权
+```
+
+If it reports `未设置` for both key sources while you believe you configured one, the app is reading a
+different domain — check `bundle id` against the domain you wrote to.
+
+### `--ask "<text>"`
+
+Runs a real query end to end, prints the answer, writes it to history, and reports storage state.
+Useful as a smoke test, or as a plain CLI tool.
+
+```bash
+./AskAI.app/Contents/MacOS/AskAI --ask "throttling"
+```
+
+```
+**节流**：限制操作执行频率的机制……
+---
+历史文件 : /Users/you/Library/Application Support/AskAI/history.json
+文件权限 : 600（600 = 仅本人可读）
+记录条数 : 1
+可解析   : 是（JSON 往返正常）
+```
+
+The reply follows whichever mode is currently selected (`defaults write com.dsh.AskAI mode translate` to change it).
+
+## Signing & why your grant keeps resetting
+
+macOS identifies an app by its **code signature**. An ad-hoc signed app gets a new identity on every
+rebuild, so the Accessibility grant silently stops applying — the classic "cannot read selection" loop.
+
+Sign with a **self-signed certificate** once and the identity stays stable across rebuilds:
+
+```bash
+# 1. create a self-signed code-signing certificate (one time)
 openssl req -x509 -newkey rsa:2048 -keyout k.pem -out c.pem -days 3650 -nodes \
   -subj "/CN=AskAI Local" \
   -addext "keyUsage=critical,digitalSignature" \
@@ -66,34 +123,46 @@ security import id.p12 -k ~/Library/Keychains/login.keychain-db -P askai -T /usr
 security add-trusted-cert -r trustRoot -p codeSign -k ~/Library/Keychains/login.keychain-db c.pem
 rm -f k.pem id.p12 c.pem
 
-# 2. 之后都用它打包（cdhash 变、证书不变，授权不失效）
+# 2. sign every build with it (cdhash changes, certificate does not)
 ASKAI_SIGN_ID="AskAI Local" ./make-app.sh
 ```
 
-首次签名会弹「codesign 想要访问钥匙串」→ 点**始终允许**。
+The first signature triggers a Keychain prompt — choose **Always Allow**.
 
-## 实现要点
+If the Accessibility list has accumulated stale entries, clear them:
 
-| 环节 | 做法 |
+```bash
+tccutil reset Accessibility com.dsh.AskAI
+```
+
+## Privacy
+
+- **API key** lives in `defaults` (`~/Library/Preferences/com.dsh.AskAI.plist`), plain text, local only
+- **History** lives in `~/Library/Application Support/AskAI/history.json`, permissions `0600`, max 20 entries;
+  menu "History → Clear History" deletes it
+- Selected text is sent only to the endpoint you configured; the app collects nothing
+
+## How it works
+
+| Step | Implementation |
 |---|---|
-| 全局快捷键 | [HotKey](https://github.com/soffes/HotKey) 库 |
-| 取选中文本 | 模拟 ⌘C → 读剪贴板 → 还原原剪贴板 |
-| 截图 OCR | `screencapture -i` + `Vision` 框架识别 |
-| 流式输出 | `URLSession.bytes` 逐行解析 SSE |
-| 浮窗 | 非激活 `NSPanel`，✕ 或 Esc 关闭 |
-| 朗读 | `AVSpeechSynthesizer` |
+| Global hotkey | [HotKey](https://github.com/soffes/HotKey) |
+| Read selection | simulate ⌘C → read pasteboard → restore previous clipboard |
+| Screenshot OCR | `screencapture -i` + Vision framework |
+| Streaming | `URLSession.bytes` + SSE line parsing |
+| Floating window | non-activating `NSPanel`, close with ✕ or Esc |
+| Speech | `AVSpeechSynthesizer` |
 
-## 隐私说明
+## Limitations
 
-- **API Key** 存在 `defaults`（`~/Library/Preferences/com.dsh.AskAI.plist`），明文，仅本机可读
-- **历史记录**存在 `~/Library/Application Support/AskAI/history.json`，文件权限 `0600`（仅当前用户可读），最多 20 条，菜单「历史记录 → 清空历史」可一键删除
-- 选中文本只发送到你配置的接口地址，工具本身不收集任何数据
+- Text that cannot be copied (protected views, password fields) falls back to OCR, which is lossy
+- A few apps copy slowly; raise the delay in `selectedText()` if needed
+- Requests are capped at 2000 characters of source text (truncated with a marker)
+- UI strings are currently Chinese; English localization is not done yet
 
-## 已知局限
+## Contributing
 
-- 不可复制的文本（受保护界面、密码框）取词会失败，靠截图 OCR 兜底
-- 部分 App 复制较慢，可在 `selectedText()` 里调大等待时间
-- 单次请求最多发送 2000 字符（超出截断，避免超上下文）
+See [AGENTS.md](AGENTS.md) for build, signing and verification conventions.
 
 ## License
 
