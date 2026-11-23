@@ -116,7 +116,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 hist.addItem(empty)
             } else {
                 for h in list {
-                    let t = h.source.replacingOccurrences(of: "\n", with: " ")
+                    // 追问的条目用「↳ 问题」当标题：它的 source 和前一条相同，看不出区别
+                    let t = (h.question.map { "↳ " + $0 } ?? h.source).replacingOccurrences(of: "\n", with: " ")
                     let label = t.count > 24 ? String(t.prefix(24)) + "…" : t
                     let it = NSMenuItem(title: label, action: #selector(showHistory(_:)), keyEquivalent: "")
                     it.target = self

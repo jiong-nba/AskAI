@@ -22,9 +22,12 @@ struct QueryInput {
 }
 
 @MainActor
-final class ResultPanel: NSPanel {
-    typealias Send = (QueryInput, PromptMode, ConnectionSettings, ((String) async -> Void)?, ((String) async -> Void)?) async throws -> String
-    typealias Save = (String, String, String, Int?) throws -> Void
+final class ResultPanel: NSPanel, NSTextFieldDelegate {
+    typealias Send = (QueryInput, PromptMode, ConnectionSettings, [ChatTurn], ((String) async -> Void)?, ((String) async -> Void)?) async throws -> String
+    typealias Save = (String, String, String, Int?, String?) throws -> Void
+
+    /// 追问时最多带上的最近轮数：请求体不随对话无限增长
+    static let contextLimit = 8
 
     private let source: String
     private let total: Int
@@ -35,13 +38,22 @@ final class ResultPanel: NSPanel {
     private let rangeLabel = NSTextField(labelWithString: "")
     private let fullButton = NSButton()
     private let textView = NSTextView()
+    private let questionField = NSTextField()
+    private let sendButton = NSButton()
+    private let stopOrRetryButton = NSButton()
     private let speaker = AVSpeechSynthesizer()
     private var sentCharacters = 0
     private var running: Task<Void, Never>?
     private var requestID = UUID()
-    private var answerText = ""        // 回答的 Markdown 原文（不含思考过程）：复制与朗读只用它
-    private var latestReasoning = ""   // 推理模型本次请求的思考过程（仅浮窗展示用）
-    private var notice = ""            // 回答下方的状态说明（如 history.json 被挪开重建），仅显示用
+    private var turns: [ChatTurn] = []                 // 这段对话里已完成的轮次，追问时作为上下文
+    private var awaiting = false                       // 有请求在途（哪怕还没收到第一个字）
+    private var streaming = ""                         // 在途那一轮已收到的正文（Markdown 原文）
+    private var pendingQuestion: String?               // 在途那一轮是追问时的问题；对原文提问时为 nil
+    private var lastRequest: (mode: PromptMode, full: Bool, question: String?)?
+    private var failure: String?                       // 最近一轮出错或被停止后的状态行；有它就可以重试
+    private var answerText = ""                        // 浮窗内容的 Markdown 原文（不含思考过程与状态行）：复制与朗读只用它
+    private var latestReasoning = ""                   // 推理模型本次请求的思考过程（仅浮窗展示用）
+    private var notice = ""                            // 正文下方的状态说明（如 history.json 被挪开重建），仅显示用
 
     /// 浮窗的内容区尺寸：默认 550×310；拖拽调整后记住（panelWidth/panelHeight）。
     /// 记住的尺寸放不进当前屏幕的可见区时收回来，免得整块跑到屏幕外
@@ -73,7 +85,7 @@ final class ResultPanel: NSPanel {
     }
 
     init(source: String, pasteboard: NSPasteboard = .general,
-         send: @escaping Send = { try await askLLM($0, mode: $1, connection: $2, onDelta: $3, onReasoning: $4) },
+         send: @escaping Send = { try await askLLM($0, mode: $1, connection: $2, context: $3, onDelta: $4, onReasoning: $5) },
          save: @escaping Save = appendHistory) {
         self.source = source
         self.total = source.count
@@ -115,12 +127,29 @@ final class ResultPanel: NSPanel {
         textView.font = .systemFont(ofSize: 14)
         textView.textColor = .textColor        // 同样是动态色，避免深色模式下黑字黑底
         scroll.documentView = textView
+
+        questionField.placeholderString = L("追问…（回车发送）", "Ask a follow-up… (Return to send)")
+        questionField.font = .systemFont(ofSize: 13)
+        questionField.delegate = self
+        questionField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        questionField.setAccessibilityLabel(L("追问", "Follow-up question"))
+        sendButton.title = L("发送", "Send")
+        sendButton.target = self
+        sendButton.action = #selector(sendFollowUp)
+        let prompt = NSStackView(views: [questionField, sendButton])
+
         let copy = NSButton(title: L("复制", "Copy"), target: self, action: #selector(copyAnswer))
         let speak = NSButton(title: L("朗读", "Speak"), target: self, action: #selector(speakAnswer))
-        let actions = NSStackView(views: [speak, copy])
+        stopOrRetryButton.target = self
+        stopOrRetryButton.action = #selector(stopOrRetry)
+        stopOrRetryButton.isHidden = true
+        let trailing = NSView()
+        trailing.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let actions = NSStackView(views: [speak, copy, trailing, stopOrRetryButton])
+
         let view = NSView()
         contentView = view
-        for child in [header, scroll, actions] {
+        for child in [header, scroll, prompt, actions] {
             child.translatesAutoresizingMaskIntoConstraints = false
             view.addSubview(child)
         }
@@ -131,7 +160,11 @@ final class ResultPanel: NSPanel {
             scroll.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 4),
             scroll.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            scroll.bottomAnchor.constraint(equalTo: actions.topAnchor, constant: -4),
+            scroll.bottomAnchor.constraint(equalTo: prompt.topAnchor, constant: -4),
+            prompt.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 10),
+            prompt.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -10),
+            prompt.bottomAnchor.constraint(equalTo: actions.topAnchor, constant: -2),
+            actions.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 10),
             actions.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -10),
             actions.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -6)
         ])
@@ -154,69 +187,111 @@ final class ResultPanel: NSPanel {
         }
     }
 
+    /// 回看一条历史。它是对话的起点：接着追问时模型能看到它；
+    /// 条目本身是追问的话，换模式重问的是同一个问题。
     func show(_ entry: HistoryEntry) {
         cancelRequest()
         let mode = historyMode(entry.mode)
         title = L("历史：", "History: ") + Self.title(for: source)
-        updateControls(mode: mode, sent: entry.sentCharacters ?? min(total, QueryInput.previewLimit),
+        let opening = QueryInput(preview: source + (entry.question.map { "\n\n" + $0 } ?? ""))
+        updateControls(mode: mode, sent: entry.sentCharacters ?? opening.sent,
                        limit: ConnectionSettings.current().summaryLimit)
-        setAnswer(entry.answer)
+        turns = [ChatTurn(question: entry.question ?? opening.message, answer: entry.answer,
+                          message: opening.message, isFollowUp: entry.question != nil)]
+        lastRequest = (mode, entry.sentCharacters == total, entry.question)
+        awaiting = false
+        streaming = ""
+        pendingQuestion = nil
+        failure = nil
+        notice = ""
+        render()
     }
 
     @objc private func choosePanelMode() {
         guard let key = modePicker.selectedItem?.representedObject as? String,
               let mode = PromptMode.all.first(where: { $0.key == key }) else { return }
-        request(mode: mode)
+        // 换模式是重新问开头那一个问题：接着之前的追问往下聊没有意义
+        request(mode: mode, full: lastRequest?.full ?? false, question: lastRequest?.question)
     }
 
     @objc private func summarizeAll() {
         if let mode = PromptMode.all.first(where: { $0.key == "summarize" }) { request(mode: mode, full: true) }
     }
 
+    /// question 为 nil：对原文提问，从头开始一段对话。否则是追问，之前的轮次作为上下文；
+    /// 唯一的例外是回看带追问的历史条目时换模式重问——那时没有前文，把原文和问题合成一条消息。
     @discardableResult
-    func request(mode: PromptMode, full: Bool = false, connection: ConnectionSettings = .current()) -> Task<Void, Never>? {
+    func request(mode: PromptMode, full: Bool = false, question: String? = nil,
+                 connection: ConnectionSettings = .current()) -> Task<Void, Never>? {
         cancelRequest()
+        failure = nil
         let input: QueryInput
-        do {
-            input = full ? try QueryInput(fullSummary: source, limit: connection.summaryLimit) : QueryInput(preview: source)
-        } catch {
-            setAnswer(error.localizedDescription)
-            return nil
+        if let question {
+            input = QueryInput(preview: turns.isEmpty ? source + "\n\n" + question : question)
+        } else {
+            do {
+                input = full ? try QueryInput(fullSummary: source, limit: connection.summaryLimit) : QueryInput(preview: source)
+            } catch {
+                turns = []
+                streaming = ""
+                awaiting = false
+                pendingQuestion = nil
+                render(status: "❌ " + error.localizedDescription)
+                return nil
+            }
+            turns = []
         }
         let id = requestID
+        lastRequest = (mode, full, question)
+        pendingQuestion = question
         title = "\(mode.title) · \(Self.title(for: source))"
-        updateControls(mode: mode, sent: input.sent, limit: connection.summaryLimit)
-        setAnswer(L("思考中…", "Thinking…"))
+        if question == nil {
+            updateControls(mode: mode, sent: input.sent, limit: connection.summaryLimit)
+        } else {
+            // 追问不改「原文 N / M 字」：那是在说原文，不是在说这个问题
+            modePicker.selectItem(withTitle: mode.title)
+        }
+        awaiting = true
+        streaming = ""
         latestReasoning = ""
         notice = ""
+        let context = Array(turns.suffix(Self.contextLimit))
+        render()
         running = Task {
-            var partial = ""
             do {
-                let answer = try await send(input, mode, connection,
+                let answer = try await send(input, mode, connection, context,
                                             { [weak self] text in
                     guard let self, self.requestID == id else { return }
-                    partial = text
-                    self.setAnswer(text)
+                    self.streaming = text
+                    self.render()
                 }, { [weak self] text in
                     guard let self, self.requestID == id else { return }
                     self.latestReasoning = text
-                    self.setAnswer(partial)
+                    self.render()
                 })
                 guard requestID == id else { return }
-                setAnswer(answer)
+                turns.append(ChatTurn(question: question ?? input.message, answer: answer,
+                                      message: input.message, isFollowUp: question != nil))
+                awaiting = false
+                streaming = ""
+                pendingQuestion = nil
+                render()
                 // Accept completion on the main actor before handing persistence to the file lock.
                 let (save, source) = (self.save, self.source)
+                let savedQuestion = question
                 await Task.detached {
-                    do { try save(mode.key, source, answer, input.sent) }
+                    do { try save(mode.key, source, answer, savedQuestion == nil ? input.sent : nil, savedQuestion) }
                     catch { NSLog("AskAI: failed to save history: \(error.localizedDescription)") }
                 }.value
-                // 写历史时发现 history.json 读不出来并已挪开重建：在回答下方说明
+                // 写历史时发现 history.json 读不出来并已挪开重建：在正文下方说明
                 guard requestID == id, let message = HistoryNotice.shared.take() else { return }
-                showNotice(message)
+                notice = message
+                render()
             } catch {
                 guard requestID == id else { return }
-                setAnswer(partial.isEmpty ? "❌ \(error.localizedDescription)"
-                    : partial + "\n\n⚠️ " + L("回答中断", "Answer interrupted") + " — " + error.localizedDescription)
+                awaiting = false
+                render(status: streaming.isEmpty ? "❌ \(error.localizedDescription)"
+                    : "⚠️ " + L("回答中断", "Answer interrupted") + " — " + error.localizedDescription)
             }
         }
         return running
@@ -229,19 +304,54 @@ final class ResultPanel: NSPanel {
         if speaker.isSpeaking { speaker.stopSpeaking(at: .immediate) }
     }
 
-    /// 思考过程只影响浮窗显示（拼在正文上方）；历史保存与命令行输出仍只用正文
-    private func displayed(_ content: String) -> String {
-        var text = content
-        if !latestReasoning.isEmpty {
-            text = L("💭 思考过程", "💭 Reasoning") + "\n" + latestReasoning + "\n\n————\n\n" + content
-        }
-        if !notice.isEmpty { text += "\n\n⚠️ " + notice }
-        return text
+    /// 停止生成：已经收到的正文留在屏幕上，可以重试。
+    func stopStreaming() {
+        guard awaiting else { return }
+        cancelRequest()   // requestID 换新之后，后台任务的收尾不会再碰界面
+        awaiting = false
+        render(status: "⏹ " + L("已停止生成", "Generation stopped"))
     }
 
-    private func showNotice(_ message: String) {
-        notice = message
-        setAnswer(answerText)
+    /// 在途（或被停止）的那一轮；没有就是 nil。
+    private var pendingTurn: ChatTurn? {
+        guard awaiting || !streaming.isEmpty else { return nil }
+        return ChatTurn(question: pendingQuestion ?? "", answer: streaming, message: "", isFollowUp: pendingQuestion != nil)
+    }
+
+    /// 浮窗正文的 Markdown 原文：已完成的轮次加上在途的那一轮，用分隔线隔开；
+    /// 追问的轮次先列出问题。status 是最后一轮下方的一行说明（出错、被停止）。
+    static func transcript(turns: [ChatTurn], pending: ChatTurn?, status: String?) -> String {
+        var parts = turns.map { body(of: $0) }
+        if let pending { parts.append(body(of: pending, whileEmpty: L("思考中…", "Thinking…"))) }
+        if let status {
+            if parts.isEmpty { parts = [status] } else { parts[parts.count - 1] += "\n\n" + status }
+        }
+        return parts.joined(separator: "\n\n————\n\n")
+    }
+
+    private static func body(of turn: ChatTurn, whileEmpty: String = "") -> String {
+        let text = turn.answer.isEmpty ? whileEmpty : turn.answer
+        return turn.isFollowUp ? "❓ " + turn.question + "\n\n" + text : text
+    }
+
+    /// 把当前对话画到正文里，思考过程拼在最上方、状态行拼在最下方（都只在屏幕上，不进复制与朗读）。
+    /// 用户停在底部（或还没滚过）时跟随新内容滚动；翻上去看前文时不再强行拉回。
+    private func render(status: String? = nil) {
+        if let status { failure = status }
+        answerText = Self.transcript(turns: turns, pending: pendingTurn, status: nil)
+        var shown = Self.transcript(turns: turns, pending: pendingTurn, status: failure)
+        if !latestReasoning.isEmpty {
+            shown = L("💭 思考过程", "💭 Reasoning") + "\n" + latestReasoning + "\n\n————\n\n" + shown
+        }
+        if !notice.isEmpty { shown += "\n\n⚠️ " + notice }
+        let atBottom = textView.visibleRect.maxY >= textView.bounds.height - 48
+        textView.textStorage?.setAttributedString(
+            Self.renderedAnswer(shown, baseFont: textView.font ?? .systemFont(ofSize: 14)))
+        if atBottom { textView.scrollToEndOfDocument(nil) }
+        stopOrRetryButton.isHidden = !awaiting && failure == nil
+        stopOrRetryButton.title = awaiting ? L("停止", "Stop") : L("重试", "Retry")
+        questionField.isEnabled = !awaiting
+        sendButton.isEnabled = !awaiting
     }
 
     /// 行内 Markdown 渲染：粗体 / 斜体 / 行内代码 / 链接，保留原有换行——
@@ -261,7 +371,7 @@ final class ResultPanel: NSPanel {
             if intent.contains(.stronglyEmphasized) {   // **粗体**
                 font = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
             }
-            if intent.contains(.emphasized) {           // *斜体*
+            if intent.contains(.emphasized) {           // *斜体**
                 font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)
             }
             if intent.contains(.code) {
@@ -280,16 +390,6 @@ final class ResultPanel: NSPanel {
         let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
         guard let parsed = try? AttributedString(markdown: markdown, options: options) else { return markdown }
         return String(parsed.characters)
-    }
-
-    /// 更新答案。content 是回答的 Markdown 原文，显示时再拼上思考过程。
-    /// 用户停在底部（或还没滚过）时跟随新内容滚动；翻上去看前文时不再强行拉回。
-    private func setAnswer(_ content: String) {
-        answerText = content
-        let atBottom = textView.visibleRect.maxY >= textView.bounds.height - 48
-        textView.textStorage?.setAttributedString(
-            Self.renderedAnswer(displayed(content), baseFont: textView.font ?? .systemFont(ofSize: 14)))
-        if atBottom { textView.scrollToEndOfDocument(nil) }
     }
 
     /// 面板出现在鼠标附近时的原点，clamp 在所在屏幕可见区内（纯函数，便于测试）
@@ -315,29 +415,61 @@ final class ResultPanel: NSPanel {
     override func cancelOperation(_ sender: Any?) { close() }
 
     /// ⌘C 复制回答：窗口显示时即成为 key window，无需先点按钮。
-    /// 若用户已用鼠标选中了部分文字，则放行给系统，复制的是选区。
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        // 只看四个修饰键：Caps Lock、Fn 这类状态不该让 ⌘C 失效
-        let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
-        if flags == .command,
-           event.charactersIgnoringModifiers?.lowercased() == "c",
-           textView.selectedRange().length == 0 {
+        if Self.commandCCopiesTheAnswer(modifiers: event.modifierFlags, characters: event.charactersIgnoringModifiers,
+                                        answerSelection: textView.selectedRange().length,
+                                        fieldSelection: questionField.currentEditor()?.selectedRange.length ?? 0) {
             copyAnswer()
             return true
         }
         return super.performKeyEquivalent(with: event)
     }
 
-    /// 复制回答的 Markdown 原文：粘贴到别处保留语法，不带思考过程。
+    /// ⌘C 是否由浮窗接管（复制整段对话）。正文里或追问输入框里已经选中了文字的话，
+    /// 放行给系统，复制的是选区。
+    static func commandCCopiesTheAnswer(modifiers: NSEvent.ModifierFlags, characters: String?,
+                                        answerSelection: Int, fieldSelection: Int) -> Bool {
+        // 只看四个修饰键：Caps Lock、Fn 这类状态不该让 ⌘C 失效
+        let flags = modifiers.intersection([.command, .option, .control, .shift])
+        return flags == .command && characters?.lowercased() == "c" && answerSelection == 0 && fieldSelection == 0
+    }
+
+    /// 追问输入框里的回车就是发送。
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        guard commandSelector == #selector(NSResponder.insertNewline(_:)) else { return false }
+        sendFollowUp()
+        return true
+    }
+
+    @objc private func sendFollowUp() {
+        let question = questionField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !question.isEmpty, !awaiting, let last = lastRequest else { return }
+        questionField.stringValue = ""
+        request(mode: last.mode, full: false, question: question)
+    }
+
+    @objc private func stopOrRetry() {
+        guard let last = lastRequest else { return }
+        if awaiting {
+            stopStreaming()
+        } else {
+            request(mode: last.mode, full: last.full, question: last.question)
+        }
+    }
+
+    /// 复制整段对话的 Markdown 原文：粘贴到别处保留语法，不带思考过程和状态行。
     @objc private func copyAnswer() {
         pasteboard.clearContents()
         pasteboard.setString(answerText, forType: .string)
         NSSound.beep()
     }
 
+    /// 朗读各轮回答（不读问题和分隔线），去掉行内 Markdown 符号。
     @objc private func speakAnswer() {
         if speaker.isSpeaking { speaker.stopSpeaking(at: .immediate); return }
-        let text = Self.speechText(answerText)
+        let answers = (turns + [pendingTurn].compactMap { $0 }).map(\.answer).filter { !$0.isEmpty }
+        let text = Self.speechText(answers.joined(separator: "\n\n"))
+        guard !text.isEmpty else { return }
         let utterance = AVSpeechUtterance(string: text)
         let hasCJK = text.unicodeScalars.contains { (0x4E00...0x9FFF).contains($0.value) }
         utterance.voice = AVSpeechSynthesisVoice(language: hasCJK ? "zh-CN" : "en-US")

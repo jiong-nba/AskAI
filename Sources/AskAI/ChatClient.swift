@@ -2,7 +2,15 @@ import Foundation
 
 // MARK: - 2. 调用 LLM（OpenAI Chat Completions 格式）
 
-func askLLM(_ input: QueryInput, mode: PromptMode, connection: ConnectionSettings,
+/// 一轮已经完成的问答，追问时作为上下文原样发回。
+struct ChatTurn: Equatable {
+    let question: String     // 显示用的问题
+    let answer: String       // 回答的 Markdown 原文（不含思考过程）
+    var message: String      // 实际发给模型的用户消息；对原文提问时是整段原文（或其预览）
+    var isFollowUp: Bool     // 是否追问：显示时先列出问题
+}
+
+func askLLM(_ input: QueryInput, mode: PromptMode, connection: ConnectionSettings, context: [ChatTurn] = [],
             session: URLSession = .shared, onDelta: ((String) async -> Void)? = nil,
             onReasoning: ((String) async -> Void)? = nil) async throws -> String {
     guard !connection.apiKey.isEmpty else {
@@ -16,13 +24,14 @@ func askLLM(_ input: QueryInput, mode: PromptMode, connection: ConnectionSetting
     req.setValue("Bearer \(connection.apiKey)", forHTTPHeaderField: "Authorization")
 
     let streaming = onDelta != nil
-    var body: [String: Any] = [
-        "model": connection.model,
-        "messages": [
-            ["role": "system", "content": mode.system],
-            ["role": "user", "content": input.message],
-        ],
-    ]
+    var messages: [[String: String]] = [["role": "system", "content": mode.system]]
+    // 追问：之前的轮次原样发回，模型才知道“它”指的是什么
+    for turn in context {
+        messages.append(["role": "user", "content": turn.message])
+        messages.append(["role": "assistant", "content": turn.answer])
+    }
+    messages.append(["role": "user", "content": input.message])
+    var body: [String: Any] = ["model": connection.model, "messages": messages]
     // 有的模型不接受非默认的 temperature（OpenAI 的推理模型直接返回 400），配置为不发送时就不带这个字段
     if let temperature = connection.temperature { body["temperature"] = temperature }
     if streaming { body["stream"] = true }
