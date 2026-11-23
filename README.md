@@ -2,7 +2,9 @@
 
 A tiny menu-bar app for macOS: **select text anywhere → press a hotkey → a floating window streams an explanation from your LLM**.
 
-Lightweight (~300 KB on disk, ~22 MB resident), no Dock icon, native Swift, single-file core.
+Native Swift menu-bar app with no Dock icon.
+
+[Download for Mac (Apple Silicon)](https://github.com/jiong-nba/AskAI/releases/latest) · macOS 13 or later
 
 > Not a translation tool. The default *Explain* mode tells you what a term means in plain Chinese,
 > then adds context and an example. Three more modes are included: Translate, Summarize, Explain Code.
@@ -13,7 +15,7 @@ Lightweight (~300 KB on disk, ~22 MB resident), no Dock icon, native Swift, sing
 
 - **Explain selection** — select text, press the hotkey, watch the answer stream in
   If a stream is interrupted, the panel keeps the partial answer and shows the error. Only completed answers enter history.
-- **Four modes** — Explain / Translate / Summarize / Explain Code (switch from the menu, remembered)
+- **Four modes** — Explain / Translate / Summarize / Explain Code — choose a default in the menu bar, or rerun the same selection in a different mode from a result or history window. Switching cancels the previous request.
 - **Screenshot OCR** — if no text can be read from the selection, it falls back to a screen-region capture and Vision OCR
 - **History** — last 20 entries, reopen any from the menu
 - **Read aloud** — system TTS, picks a Chinese or English voice automatically
@@ -21,23 +23,22 @@ Lightweight (~300 KB on disk, ~22 MB resident), no Dock icon, native Swift, sing
 - **Custom hotkey** — record it right in the menu
 - **Any OpenAI-compatible endpoint** — DeepSeek, OpenAI, Ollama, etc.
 
-## Requirements
-
-- macOS 13 or later
-- Swift toolchain (install Xcode Command Line Tools)
-
 ## Quick start
+
+1. Download the ZIP from the release page, unzip it, move `AskAI.app` to Applications, and open it.
+2. On first launch, enter your chat completions endpoint, model, and API key in Settings. Click **Test Connection**, then **Save**. Reopen Settings from the 🤖 menu to change providers for the next query. For v1.1.1 and earlier downloads, use the configuration commands below.
+3. Grant Accessibility access, select text, and press **⌘⇧E**.
+
+Building from source requires Swift 5.9+ and Xcode Command Line Tools:
 
 ```bash
 git clone https://github.com/jiong-nba/AskAI.git
 cd AskAI
-./make-app.sh                                  # build + bundle into AskAI.app
-defaults write com.dsh.AskAI apiKey sk-YOUR-KEY  # or export ASKAI_KEY=sk-...
-open AskAI.app                                 # 🤖 appears in the menu bar
-./AskAI.app/Contents/MacOS/AskAI --check       # sanity check: key, endpoint, permission
+./make-app.sh
+open AskAI.app
 ```
 
-**Grant Accessibility permission once** (required to read the selection by simulating ⌘C):
+Both direct selection capture and simulated Copy use Accessibility permission.
 
 > System Settings → Privacy & Security → Accessibility → ➕ add `AskAI.app` → toggle on
 
@@ -46,7 +47,7 @@ Without it, text capture fails and the app falls back to screenshot OCR
 
 ## Configuration
 
-Everything is stored in `defaults` — no code edits needed.
+Settings and the CLI share the same `defaults` preferences. Test Connection sends a fixed probe to the endpoint in the form.
 
 | What | Command |
 |---|---|
@@ -158,7 +159,7 @@ tccutil reset Accessibility com.dsh.AskAI
 | Step | Implementation |
 |---|---|
 | Global hotkey | [HotKey](https://github.com/soffes/HotKey) |
-| Read selection | simulate ⌘C → read pasteboard → restore previous clipboard |
+| Read selection | Read the Accessibility selection first. Fall back to ⌘C, wait for a pasteboard change, then restore the previous clipboard |
 | Screenshot OCR | `screencapture -i` + Vision framework |
 | Streaming | `URLSession.bytes` + SSE line parsing |
 | Floating window | non-activating `NSPanel`, close with ✕ or Esc |
@@ -167,8 +168,7 @@ tccutil reset Accessibility com.dsh.AskAI
 ## Limitations
 
 - Text that cannot be copied (protected views, password fields) falls back to OCR, which is lossy
-- A few apps copy slowly; raise the delay in `selectedText()` if needed
-- Requests are capped at 2000 characters of source text (truncated with a marker)
+- Queries preview the first 2,000 source characters. The panel shows the count used and the original length. **Summarize All** sends the entire selection up to the limit in Settings (16,000 characters by default). Set this for your model; the provider also enforces its token limit. CLI `--ask` keeps the 2,000-character preview.
 - UI and CLI output are bilingual (zh/en), chosen from the system language at launch; changing `lang` requires a restart
 
 ## Contributing
