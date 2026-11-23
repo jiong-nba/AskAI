@@ -97,7 +97,7 @@ different domain — check `bundle id` against the domain you wrote to.
 ### `--ask "<text>"`
 
 Runs a real query end to end, prints the answer, writes it to history, and reports storage state.
-Useful as a smoke test, or as a plain CLI tool.
+Successful queries exit with status 0. Request failures write a diagnostic to stderr and exit with a nonzero status.
 
 ```bash
 ./AskAI.app/Contents/MacOS/AskAI --ask "throttling"

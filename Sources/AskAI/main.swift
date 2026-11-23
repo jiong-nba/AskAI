@@ -900,10 +900,13 @@ if CommandLine.arguments.contains("--check") {
 // MARK: - 命令行问答：AskAI --ask "要解释的文字"
 // 用于端到端自测（真发一次请求 + 真实写历史），也可当作脚本工具使用。
 
-if let i = CommandLine.arguments.firstIndex(of: "--ask"), i + 1 < CommandLine.arguments.count {
+if let i = CommandLine.arguments.firstIndex(of: "--ask") {
+    guard i + 1 < CommandLine.arguments.count else {
+        fputs(L("用法：AskAI --ask <文字>\n", "Usage: AskAI --ask <text>\n"), stderr)
+        exit(EXIT_FAILURE)
+    }
     let question = CommandLine.arguments[i + 1]
     let mode = currentMode()
-    let sem = DispatchSemaphore(value: 0)
     Task {
         do {
             let answer = try await askLLM(question, mode: mode)
@@ -918,12 +921,12 @@ if let i = CommandLine.arguments.firstIndex(of: "--ask"), i + 1 < CommandLine.ar
             print(L("记录条数 : ", "entries      : ") + "\(loadHistory().count)")
             print(L("可解析   : ", "json round-trip : ") + (try readHistoryFile().isEmpty ? L("否", "failed") : L("是", "ok")))
         } catch {
-            print(L("错误: ", "error: ") + error.localizedDescription)
+            fputs(L("错误: ", "error: ") + error.localizedDescription + "\n", stderr)
+            exit(EXIT_FAILURE)
         }
-        sem.signal()
+        exit(EXIT_SUCCESS)
     }
-    sem.wait()
-    exit(0)
+    dispatchMain()
 }
 
 // MARK: - 入口
