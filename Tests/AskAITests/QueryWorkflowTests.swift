@@ -249,4 +249,17 @@ struct QueryWorkflowTests {
         try draft.save(to: defaults, environmentKey: nil)
         #expect(ConnectionSettings.current(defaults: defaults, environmentKey: nil).temperature == nil)
     }
+
+    @Test func copyTimeoutIsConfigurableWithinBounds() throws {
+        let suite = "AskAI-test-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        #expect(copyTimeout(defaults: defaults) == .milliseconds(350))
+        defaults.set(800, forKey: "copyTimeoutMs")
+        #expect(copyTimeout(defaults: defaults) == .milliseconds(800))
+        defaults.set(10, forKey: "copyTimeoutMs")
+        #expect(copyTimeout(defaults: defaults) == .milliseconds(100))
+        defaults.set(999_999, forKey: "copyTimeoutMs")
+        #expect(copyTimeout(defaults: defaults) == .milliseconds(5_000))
+    }
 }
