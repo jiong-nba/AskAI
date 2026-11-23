@@ -116,7 +116,7 @@ func modeTitle(forKey key: String) -> String {
 
 // MARK: - 历史记录
 
-struct HistoryEntry: Codable {
+struct HistoryEntry: Codable, Equatable {
     let time: Date
     let mode: String
     let source: String
@@ -131,27 +131,38 @@ let historyDir = FileManager.default.urls(for: .applicationSupportDirectory, in:
     .appendingPathComponent("AskAI", isDirectory: true)
 let historyFile = historyDir.appendingPathComponent("history.json")
 
-private func readHistoryFile() -> [HistoryEntry] {
-    guard let data = try? Data(contentsOf: historyFile) else { return [] }
-    return (try? JSONDecoder().decode([HistoryEntry].self, from: data)) ?? []
+// history.json is atomically replaced. Lock a separate, persistent inode for every writer.
+private func withHistoryLock<T>(_ operation: () throws -> T) throws -> T {
+    try FileManager.default.createDirectory(at: historyDir, withIntermediateDirectories: true)
+    let path = historyDir.appendingPathComponent("history.lock").path
+    var fd: Int32
+    repeat {
+        fd = open(path, O_RDWR | O_CREAT | O_EXLOCK | O_CLOEXEC, 0o600)
+    } while fd == -1 && errno == EINTR
+    guard fd >= 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
+    defer { close(fd) }
+    return try operation()
 }
 
-func saveHistory(_ entries: [HistoryEntry]) {
-    let list = Array(entries.prefix(historyLimit))
+private func readHistoryFile() throws -> [HistoryEntry] {
     do {
-        try FileManager.default.createDirectory(at: historyDir, withIntermediateDirectories: true)
-        let data = try JSONEncoder().encode(list)
-        try data.write(to: historyFile, options: .atomic)
-        // 仅当前用户可读，避免别的账户/进程窥探
-        try FileManager.default.setAttributes([.posixPermissions: 0o600],
-                                             ofItemAtPath: historyFile.path)
-    } catch {
-        NSLog("AskAI: failed to save history: \(error.localizedDescription)")
+        let data = try Data(contentsOf: historyFile)
+        return try JSONDecoder().decode([HistoryEntry].self, from: data)
+    } catch CocoaError.fileReadNoSuchFile {
+        return []
     }
 }
 
-/// 把旧版本存在 UserDefaults 里的历史搬到文件，然后清掉 plist 里那份
-func migrateLegacyHistoryIfNeeded() {
+private func saveHistory(_ entries: [HistoryEntry]) throws {
+    let data = try JSONEncoder().encode(Array(entries.prefix(historyLimit)))
+    try data.write(to: historyFile, options: .atomic)
+    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: historyFile.path)
+}
+
+/// Called under the history lock. Another process may have migrated these defaults already.
+private func migrateLegacyHistoryIfNeeded() throws {
+    guard defaults.object(forKey: historyKey) != nil else { return }
+    defaults.synchronize()
     guard let raw = defaults.array(forKey: historyKey) as? [[String: Any]] else { return }
     let legacy: [HistoryEntry] = raw.compactMap { d in
         guard let t = d["time"] as? Double, let m = d["mode"] as? String,
@@ -159,26 +170,47 @@ func migrateLegacyHistoryIfNeeded() {
         return HistoryEntry(time: Date(timeIntervalSince1970: t), mode: m, source: s, answer: a)
     }
     if !legacy.isEmpty {
-        saveHistory(legacy + readHistoryFile())
+        let existing = try readHistoryFile()
+        try saveHistory(existing + legacy.filter { !existing.contains($0) })
     }
     defaults.removeObject(forKey: historyKey)
+    defaults.synchronize()
 }
 
 func loadHistory() -> [HistoryEntry] {
-    migrateLegacyHistoryIfNeeded()
-    return readHistoryFile()
+    do {
+        return try withHistoryLock {
+            try migrateLegacyHistoryIfNeeded()
+            return try readHistoryFile()
+        }
+    } catch {
+        NSLog("AskAI: failed to load history: \(error.localizedDescription)")
+        return []
+    }
 }
 
 func clearHistoryStorage() {
-    defaults.removeObject(forKey: historyKey)
-    try? FileManager.default.removeItem(at: historyFile)
+    do {
+        try withHistoryLock {
+            if FileManager.default.fileExists(atPath: historyFile.path) {
+                try FileManager.default.removeItem(at: historyFile)
+            }
+            defaults.removeObject(forKey: historyKey)
+            defaults.synchronize()
+        }
+    } catch {
+        NSLog("AskAI: failed to clear history: \(error.localizedDescription)")
+    }
 }
 
-func appendHistory(mode: String, source: String, answer: String) {
+func appendHistory(mode: String, source: String, answer: String) throws {
     guard !answer.isEmpty, !answer.hasPrefix("❌") else { return }
-    var list = readHistoryFile()
-    list.insert(HistoryEntry(time: Date(), mode: mode, source: source, answer: answer), at: 0)
-    saveHistory(list)
+    try withHistoryLock {
+        try migrateLegacyHistoryIfNeeded()
+        var list = try readHistoryFile()
+        list.insert(HistoryEntry(time: Date(), mode: mode, source: source, answer: answer), at: 0)
+        try saveHistory(list)
+    }
 }
 
 // 快捷键配置（默认 ⌘⇧E；用菜单栏 🤖 →「设置快捷键…」改，自动存进 defaults）
@@ -691,7 +723,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 let answer = try await askLLM(source, mode: mode) { full in
                     DispatchQueue.main.async { setPanelText(panel, full) }
                 }
-                appendHistory(mode: mode.key, source: source, answer: answer)
+                do {
+                    try appendHistory(mode: mode.key, source: source, answer: answer)
+                } catch {
+                    NSLog("AskAI: failed to save history: \(error.localizedDescription)")
+                }
             } catch {
                 await MainActor.run { setPanelText(panel, "❌ \(error.localizedDescription)") }
             }
@@ -844,7 +880,7 @@ if let i = CommandLine.arguments.firstIndex(of: "--ask"), i + 1 < CommandLine.ar
         do {
             let answer = try await askLLM(question, mode: mode)
             print(answer)
-            appendHistory(mode: mode.key, source: question, answer: answer)
+            try appendHistory(mode: mode.key, source: question, answer: answer)
 
             let attrs = try? FileManager.default.attributesOfItem(atPath: historyFile.path)
             let perms = (attrs?[.posixPermissions] as? NSNumber).map { String($0.intValue, radix: 8) }
@@ -852,7 +888,7 @@ if let i = CommandLine.arguments.firstIndex(of: "--ask"), i + 1 < CommandLine.ar
             print(L("历史文件 : ", "history file : ") + historyFile.path)
             print(L("文件权限 : ", "file mode    : ") + (perms ?? L("文件不存在", "missing")))
             print(L("记录条数 : ", "entries      : ") + "\(loadHistory().count)")
-            print(L("可解析   : ", "json round-trip : ") + (readHistoryFile().isEmpty ? L("否", "failed") : L("是", "ok")))
+            print(L("可解析   : ", "json round-trip : ") + (try readHistoryFile().isEmpty ? L("否", "failed") : L("是", "ok")))
         } catch {
             print(L("错误: ", "error: ") + error.localizedDescription)
         }
