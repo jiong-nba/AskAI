@@ -750,6 +750,35 @@ if CommandLine.arguments.contains("--check") {
     exit(0)
 }
 
+// MARK: - 命令行问答：AskAI --ask "要解释的文字"
+// 用于端到端自测（真发一次请求 + 真实写历史），也可当作脚本工具使用。
+
+if let i = CommandLine.arguments.firstIndex(of: "--ask"), i + 1 < CommandLine.arguments.count {
+    let question = CommandLine.arguments[i + 1]
+    let mode = currentMode()
+    let sem = DispatchSemaphore(value: 0)
+    Task {
+        do {
+            let answer = try await askLLM(question, mode: mode)
+            print(answer)
+            appendHistory(mode: mode.title, source: question, answer: answer)
+
+            let attrs = try? FileManager.default.attributesOfItem(atPath: historyFile.path)
+            let perms = (attrs?[.posixPermissions] as? NSNumber).map { String($0.intValue, radix: 8) }
+            print("---")
+            print("历史文件 : \(historyFile.path)")
+            print("文件权限 : \(perms ?? "文件不存在")（600 = 仅本人可读）")
+            print("记录条数 : \(loadHistory().count)")
+            print("可解析   : \(readHistoryFile().isEmpty ? "否" : "是（JSON 往返正常）")")
+        } catch {
+            print("错误: \(error.localizedDescription)")
+        }
+        sem.signal()
+    }
+    sem.wait()
+    exit(0)
+}
+
 // MARK: - 入口
 
 let app = NSApplication.shared
