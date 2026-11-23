@@ -132,7 +132,7 @@ final class ResultPanel: NSPanel {
         title = L("历史：", "History: ") + String(source.prefix(40))
         updateControls(mode: mode, sent: entry.sentCharacters ?? min(total, QueryInput.previewLimit),
                        limit: ConnectionSettings.current().summaryLimit)
-        textView.string = entry.answer
+        setAnswer(entry.answer)
     }
 
     @objc private func choosePanelMode() {
@@ -152,23 +152,23 @@ final class ResultPanel: NSPanel {
         do {
             input = full ? try QueryInput(fullSummary: source, limit: connection.summaryLimit) : QueryInput(preview: source)
         } catch {
-            textView.string = error.localizedDescription
+            setAnswer(error.localizedDescription)
             return nil
         }
         let id = requestID
         title = "\(mode.title) · \(source.prefix(40))"
         updateControls(mode: mode, sent: input.sent, limit: connection.summaryLimit)
-        textView.string = L("思考中…", "Thinking…")
+        setAnswer(L("思考中…", "Thinking…"))
         running = Task {
             var partial = ""
             do {
                 let answer = try await send(input, mode, connection) { [weak self] text in
                     guard let self, self.requestID == id else { return }
                     partial = text
-                    self.textView.string = text
+                    self.setAnswer(text)
                 }
                 guard requestID == id else { return }
-                textView.string = answer
+                setAnswer(answer)
                 // Accept completion on the main actor before handing persistence to the file lock.
                 let (save, source) = (self.save, self.source)
                 await Task.detached {
@@ -177,8 +177,8 @@ final class ResultPanel: NSPanel {
                 }.value
             } catch {
                 guard requestID == id else { return }
-                textView.string = partial.isEmpty ? "❌ \(error.localizedDescription)"
-                    : partial + "\n\n⚠️ " + L("回答中断", "Answer interrupted") + " — " + error.localizedDescription
+                setAnswer(partial.isEmpty ? "❌ \(error.localizedDescription)"
+                    : partial + "\n\n⚠️ " + L("回答中断", "Answer interrupted") + " — " + error.localizedDescription)
             }
         }
         return running
@@ -189,6 +189,14 @@ final class ResultPanel: NSPanel {
         running?.cancel()
         running = nil
         if speaker.isSpeaking { speaker.stopSpeaking(at: .immediate) }
+    }
+
+    /// 更新答案文本。用户停在底部（或还没滚过）时跟随新内容滚动；
+    /// 翻上去看前文时不再强行拉回。
+    private func setAnswer(_ text: String) {
+        let atBottom = textView.visibleRect.maxY >= textView.bounds.height - 48
+        textView.string = text
+        if atBottom { textView.scrollToEndOfDocument(nil) }
     }
 
     /// 面板出现在鼠标附近时的原点，clamp 在所在屏幕可见区内（纯函数，便于测试）
