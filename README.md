@@ -63,6 +63,8 @@ Settings and the CLI share the same `defaults` preferences. Test Connection send
 | Mode | Menu 🤖 → "Mode" |
 | History | Edit `~/Library/Application Support/AskAI/history.json` |
 | UI language | `defaults write com.dsh.AskAI lang en` (or `zh`; default follows macOS) |
+| Temperature | `defaults write com.dsh.AskAI temperature 0.3` (0–2; `-1` = do not send it and use the provider default. OpenAI's reasoning models such as the o-series and GPT-5 reject any other value, so use `-1` for them) |
+| Copy fallback wait | `defaults write com.dsh.AskAI copyTimeoutMs 350` (how long to wait for ⌘C before falling back to screenshot OCR; raise it for slow apps, 100–5000) |
 
 Language fallback: any preferred system language other than Chinese falls back to the English UI,
 and the Translate mode targets English in that case (English input is translated into Simplified
@@ -170,7 +172,7 @@ tccutil reset Accessibility com.dsh.AskAI
 | Read selection | Read the Accessibility selection first. Fall back to ⌘C, wait for a pasteboard change, then restore the previous clipboard |
 | Screenshot OCR | `screencapture -i` + Vision framework |
 | Streaming | `URLSession.bytes` + SSE line parsing |
-| Floating window | non-activating `NSPanel` shown near the cursor; close with ✕ or Esc |
+| Floating window | non-activating `NSPanel` shown near the cursor; close with ✕, or with Esc while the panel has the focus (Esc pressed inside another app leaves it open) |
 | Speech | `AVSpeechSynthesizer` |
 
 ## Limitations
