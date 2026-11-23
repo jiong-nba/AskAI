@@ -51,7 +51,7 @@ Everything is stored in `defaults` — no code edits needed.
 |---|---|
 | API key | `defaults write com.dsh.AskAI apiKey sk-xxx` |
 | Model | `defaults write com.dsh.AskAI model deepseek-chat` |
-| Endpoint | `defaults write com.dsh.AskAI baseURL "https://api.openai.com/v1/chat/completions"` |
+| Endpoint | `defaults write com.dsh.AskAI baseURL "https://api.openai.com/v1/chat/completions"` (must be a full `https://` URL; an invalid value falls back to the default endpoint and `--check` prints a warning) |
 | Hotkey | Menu 🤖 → "Set Hotkey…" and press the combination |
 | Mode | Menu 🤖 → "Mode" |
 | History | Edit `~/Library/Application Support/AskAI/history.json` |
