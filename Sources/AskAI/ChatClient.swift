@@ -18,12 +18,13 @@ func askLLM(_ input: QueryInput, mode: PromptMode, connection: ConnectionSetting
     let streaming = onDelta != nil
     var body: [String: Any] = [
         "model": connection.model,
-        "temperature": 0.3,
         "messages": [
             ["role": "system", "content": mode.system],
             ["role": "user", "content": input.message],
         ],
     ]
+    // 有的模型不接受非默认的 temperature（OpenAI 的推理模型直接返回 400），配置为不发送时就不带这个字段
+    if let temperature = connection.temperature { body["temperature"] = temperature }
     if streaming { body["stream"] = true }
     req.httpBody = try JSONSerialization.data(withJSONObject: body)
 
