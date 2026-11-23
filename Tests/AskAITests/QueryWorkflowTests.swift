@@ -120,15 +120,45 @@ struct QueryWorkflowTests {
         let generation = board.changeCount
         let none = try await copiedSelection(from: board, timeout: .milliseconds(20)) {}
         #expect(none == nil && board.changeCount == generation)
-        let selection = try await copiedSelection(from: board) {
-            Task { @MainActor in
+        // The target app's Copy lands after the first poll. It is triggered from the focus check, which
+        // runs once before the copy is posted and then once per poll, instead of from a background
+        // task: that keeps the test independent of scheduling order on slow machines.
+        var checks = 0
+        let selection = try await copiedSelection(from: board, stillFocused: {
+            checks += 1
+            if checks == 3 {
                 board.clearContents()
                 board.setString("  selection\n", forType: .string)
             }
-        }
+            return true
+        }) {}
         #expect(selection == "selection")
         #expect(board.pasteboardItems?.count == 2)
         #expect(board.pasteboardItems?.first?.data(forType: .rtf) == Data([1, 2, 3]))
         #expect(board.pasteboardItems?.last?.string(forType: .string) == "second")
+    }
+
+    // Regression: a copy that lands while the last sleep is already running past the deadline must
+    // still be picked up. The loop used to decide "timed out" right after sleeping without looking
+    // again, which lost the selection whenever one poll straddled the deadline (slow machines).
+    @Test @MainActor func copyLandingInsideTheLastPollIsStillDetected() async throws {
+        let board = NSPasteboard.withUniqueName()
+        defer { board.releaseGlobally() }
+        board.setString("original", forType: .string)
+        // A 1 s budget and a single 1.2 s sleep: the deadline passes during that first sleep. The
+        // focus check runs once before the copy is posted and then once per poll, so its third call
+        // is the look at the pasteboard that follows the sleep.
+        var checks = 0
+        let selection = try await copiedSelection(from: board, timeout: .milliseconds(1_000), poll: .milliseconds(1_200),
+                                                  stillFocused: {
+            checks += 1
+            if checks == 3 {
+                board.clearContents()
+                board.setString("late selection", forType: .string)
+            }
+            return true
+        }) {}
+        #expect(selection == "late selection")
+        #expect(board.string(forType: .string) == "original")   // the backup was restored afterwards
     }
 }
