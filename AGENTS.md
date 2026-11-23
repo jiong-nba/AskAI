@@ -4,7 +4,7 @@ Instructions for AI coding agents (and human contributors) working on this repos
 
 ## What this project is
 
-A single-file macOS menu-bar app (~700 lines of Swift) that reads the current selection, sends it to an
+A single-file macOS menu-bar app (~900 lines of Swift) that reads the current selection, sends it to an
 OpenAI-compatible endpoint, and streams the answer into a floating panel. There is no test suite and no
 server side; correctness is verified by building and running one real query.
 
@@ -61,7 +61,7 @@ behaviour.
 
 - Swift 5.9+, macOS 13+ target, no force-unwraps except for compile-time literals (URL, key codes)
 - All UI work on the main thread; network work in `Task`, UI updates via `DispatchQueue.main.async` or `MainActor`
-- User-facing strings are Chinese for now; docs are bilingual
+- User-facing strings go through `L(zh:en:)`; never hardcode a single language in UI code. Docs are bilingual and must stay in sync
 - Keep `main.swift` a single file unless it exceeds ~1200 lines; comments explain *why*, not *what*
 
 ## Shell conventions
