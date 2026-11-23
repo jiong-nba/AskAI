@@ -83,6 +83,12 @@ ASKAI_SIGN_ID="AskAI Local" ./make-app.sh
 | 浮窗 | 非激活 `NSPanel`，✕ 或 Esc 关闭 |
 | 朗读 | `AVSpeechSynthesizer` |
 
+## 隐私说明
+
+- **API Key** 存在 `defaults`（`~/Library/Preferences/com.dsh.AskAI.plist`），明文，仅本机可读
+- **历史记录**存在 `~/Library/Application Support/AskAI/history.json`，文件权限 `0600`（仅当前用户可读），最多 20 条，菜单「历史记录 → 清空历史」可一键删除
+- 选中文本只发送到你配置的接口地址，工具本身不收集任何数据
+
 ## 已知局限
 
 - 不可复制的文本（受保护界面、密码框）取词会失败，靠截图 OCR 兜底

@@ -68,7 +68,7 @@ func currentMode() -> PromptMode {
 
 // MARK: - 历史记录
 
-struct HistoryEntry {
+struct HistoryEntry: Codable {
     let time: Date
     let mode: String
     let source: String
@@ -78,25 +78,57 @@ struct HistoryEntry {
 let historyKey = "history"
 let historyLimit = 20
 
-func loadHistory() -> [HistoryEntry] {
-    guard let raw = defaults.array(forKey: historyKey) as? [[String: Any]] else { return [] }
-    return raw.compactMap { d in
+// 历史存文件而非 UserDefaults：避免 plist 膨胀，也便于用户自行删除/审计
+let historyDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    .appendingPathComponent("AskAI", isDirectory: true)
+let historyFile = historyDir.appendingPathComponent("history.json")
+
+private func readHistoryFile() -> [HistoryEntry] {
+    guard let data = try? Data(contentsOf: historyFile) else { return [] }
+    return (try? JSONDecoder().decode([HistoryEntry].self, from: data)) ?? []
+}
+
+func saveHistory(_ entries: [HistoryEntry]) {
+    let list = Array(entries.prefix(historyLimit))
+    do {
+        try FileManager.default.createDirectory(at: historyDir, withIntermediateDirectories: true)
+        let data = try JSONEncoder().encode(list)
+        try data.write(to: historyFile, options: .atomic)
+        // 仅当前用户可读，避免别的账户/进程窥探
+        try FileManager.default.setAttributes([.posixPermissions: 0o600],
+                                             ofItemAtPath: historyFile.path)
+    } catch {
+        NSLog("AskAI: 保存历史失败 \(error.localizedDescription)")
+    }
+}
+
+/// 把旧版本存在 UserDefaults 里的历史搬到文件，然后清掉 plist 里那份
+func migrateLegacyHistoryIfNeeded() {
+    guard let raw = defaults.array(forKey: historyKey) as? [[String: Any]] else { return }
+    let legacy: [HistoryEntry] = raw.compactMap { d in
         guard let t = d["time"] as? Double, let m = d["mode"] as? String,
               let s = d["source"] as? String, let a = d["answer"] as? String else { return nil }
         return HistoryEntry(time: Date(timeIntervalSince1970: t), mode: m, source: s, answer: a)
     }
+    if !legacy.isEmpty {
+        saveHistory(legacy + readHistoryFile())
+    }
+    defaults.removeObject(forKey: historyKey)
 }
 
-func saveHistory(_ entries: [HistoryEntry]) {
-    let arr: [[String: Any]] = entries.prefix(historyLimit).map {
-        ["time": $0.time.timeIntervalSince1970, "mode": $0.mode, "source": $0.source, "answer": $0.answer]
-    }
-    defaults.set(arr, forKey: historyKey)
+func loadHistory() -> [HistoryEntry] {
+    migrateLegacyHistoryIfNeeded()
+    return readHistoryFile()
+}
+
+func clearHistoryStorage() {
+    defaults.removeObject(forKey: historyKey)
+    try? FileManager.default.removeItem(at: historyFile)
 }
 
 func appendHistory(mode: String, source: String, answer: String) {
     guard !answer.isEmpty, !answer.hasPrefix("❌") else { return }
-    var list = loadHistory()
+    var list = readHistoryFile()
     list.insert(HistoryEntry(time: Date(), mode: mode, source: source, answer: answer), at: 0)
     saveHistory(list)
 }
@@ -471,7 +503,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     @objc private func clearHistory() {
-        defaults.removeObject(forKey: historyKey)
+        clearHistoryStorage()
         refreshMenu()
     }
 
