@@ -41,6 +41,7 @@ final class ResultPanel: NSPanel {
     private var requestID = UUID()
     private var answerText = ""        // 回答的 Markdown 原文（不含思考过程）：复制与朗读只用它
     private var latestReasoning = ""   // 推理模型本次请求的思考过程（仅浮窗展示用）
+    private var notice = ""            // 回答下方的状态说明（如 history.json 被挪开重建），仅显示用
 
     /// 浮窗尺寸：默认 550×310；拖拽调整后记住（panelWidth/panelHeight），换小屏时按可见高度兜底
     static func panelSize(screenHeight: CGFloat? = NSScreen.main?.visibleFrame.height,
@@ -167,6 +168,7 @@ final class ResultPanel: NSPanel {
         updateControls(mode: mode, sent: input.sent, limit: connection.summaryLimit)
         setAnswer(L("思考中…", "Thinking…"))
         latestReasoning = ""
+        notice = ""
         running = Task {
             var partial = ""
             do {
@@ -188,6 +190,9 @@ final class ResultPanel: NSPanel {
                     do { try save(mode.key, source, answer, input.sent) }
                     catch { NSLog("AskAI: failed to save history: \(error.localizedDescription)") }
                 }.value
+                // 写历史时发现 history.json 读不出来并已挪开重建：在回答下方说明
+                guard requestID == id, let message = HistoryNotice.shared.take() else { return }
+                showNotice(message)
             } catch {
                 guard requestID == id else { return }
                 setAnswer(partial.isEmpty ? "❌ \(error.localizedDescription)"
@@ -206,8 +211,17 @@ final class ResultPanel: NSPanel {
 
     /// 思考过程只影响浮窗显示（拼在正文上方）；历史保存与命令行输出仍只用正文
     private func displayed(_ content: String) -> String {
-        guard !latestReasoning.isEmpty else { return content }
-        return L("💭 思考过程", "💭 Reasoning") + "\n" + latestReasoning + "\n\n————\n\n" + content
+        var text = content
+        if !latestReasoning.isEmpty {
+            text = L("💭 思考过程", "💭 Reasoning") + "\n" + latestReasoning + "\n\n————\n\n" + content
+        }
+        if !notice.isEmpty { text += "\n\n⚠️ " + notice }
+        return text
+    }
+
+    private func showNotice(_ message: String) {
+        notice = message
+        setAnswer(answerText)
     }
 
     /// 行内 Markdown 渲染：粗体 / 斜体 / 行内代码 / 链接，保留原有换行——

@@ -27,6 +27,9 @@ private func copyEvent(for panel: ResultPanel, flags: NSEvent.ModifierFlags = .c
         characters: "c", charactersIgnoringModifiers: "c", isARepeat: false, keyCode: 8))
 }
 
+// Serialized: these tests share NSApplication, and a finished request consumes a process-wide
+// HistoryNotice, so a parallel test could swallow the notice another one is waiting for.
+@Suite(.serialized)
 struct ResultPanelTests {
     @Test @MainActor func settingsWindowOpensAtFormSize() throws {
         _ = NSApplication.shared
@@ -221,6 +224,27 @@ struct ResultPanelTests {
     @Test @MainActor func speechTextDropsInlineMarkdown() {
         #expect(ResultPanel.speechText("**bold** `code` [text](https://example.com)") == "bold code text")
         #expect(ResultPanel.speechText("第一行普通中文\nSecond line") == "第一行普通中文\nSecond line")
+    }
+
+    // A notice raised while history was saved (history.json unreadable and moved aside) is shown
+    // below the answer, and stays out of the clipboard.
+    @Test @MainActor func historyNoticeIsShownBelowTheAnswerButNotCopied() async throws {
+        _ = NSApplication.shared
+        let board = isolatedPasteboard()
+        defer { board.releaseGlobally() }
+        let panel = ResultPanel(source: "idempotency", pasteboard: board) { _, _, _, delta, _ in
+            await delta?("answer")
+            return "answer"
+        } save: { _, _, _, _ in
+            HistoryNotice.shared.post("history.json was moved aside")
+        }
+        defer { panel.close() }
+        await panel.request(mode: historyMode("explain"))?.value
+
+        #expect(try answerView(of: panel).string == "answer\n\n⚠️ history.json was moved aside")
+        #expect(panel.performKeyEquivalent(with: try copyEvent(for: panel)))
+        #expect(board.string(forType: .string) == "answer")
+        #expect(HistoryNotice.shared.take() == nil)   // shown once, then consumed
     }
 
     @Test @MainActor func answerUsesDynamicTextColorForDarkMode() throws {

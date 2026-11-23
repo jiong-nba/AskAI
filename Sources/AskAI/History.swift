@@ -31,11 +31,49 @@ private func withHistoryLock<T>(_ operation: () throws -> T) throws -> T {
     return try operation()
 }
 
+/// 给用户看的一次性提示，跨线程传递（历史在后台任务里写，在界面上读）。只保留最新一条。
+final class HistoryNotice {
+    static let shared = HistoryNotice()
+    private let lock = NSLock()
+    private var text: String?
+
+    func post(_ message: String) {
+        lock.lock(); defer { lock.unlock() }
+        text = message
+    }
+
+    /// 取走当前的提示；没有就返回 nil。
+    func take() -> String? {
+        lock.lock(); defer { lock.unlock() }
+        let message = text
+        text = nil
+        return message
+    }
+}
+
+/// history.json 存在却读不出来（手改出错的 JSON、权限问题）时，把它挪到一旁再从空历史开始。
+/// 不然之后每一条回答都存不进去，界面上只会看到「暂无记录」。
+/// 挪不动（目录不可写等）时把错误抛出去，由调用方处理。
+private func quarantineUnreadableHistory(_ reason: Error) throws {
+    let stamp = Int(Date().timeIntervalSince1970)
+    var backup = historyDir.appendingPathComponent("history.corrupt-\(stamp).json")
+    while FileManager.default.fileExists(atPath: backup.path) {
+        backup = historyDir.appendingPathComponent("history.corrupt-\(stamp)-\(UUID().uuidString.prefix(8)).json")
+    }
+    try FileManager.default.moveItem(at: historyFile, to: backup)
+    NSLog("AskAI: unreadable history moved to \(backup.lastPathComponent): \(reason.localizedDescription)")
+    HistoryNotice.shared.post(L("history.json 读不出来，已另存为 \(backup.lastPathComponent)，历史记录从空开始。",
+                                "history.json could not be read. It was moved aside as \(backup.lastPathComponent) and history starts empty."))
+}
+
 func readHistoryFile() throws -> [HistoryEntry] {
     do {
         let data = try Data(contentsOf: historyFile)
         return try JSONDecoder().decode([HistoryEntry].self, from: data)
     } catch CocoaError.fileReadNoSuchFile {
+        return []
+    } catch {
+        try quarantineUnreadableHistory(error)
         return []
     }
 }

@@ -45,7 +45,16 @@ func runAsk(arguments: [String]) -> Never {
             let input = QueryInput(preview: question)
             let answer = try await askLLM(input, mode: mode, connection: .current())
             print(answer)
-            try appendHistory(mode: mode.key, source: question, answer: answer)
+            do {
+                try appendHistory(mode: mode.key, source: question, answer: answer)
+            } catch {
+                throw AskError(L("历史记录写入失败（\(historyFile.path)）：", "Could not write history (\(historyFile.path)): ")
+                               + error.localizedDescription)
+            }
+            // history.json 读不出来时 appendHistory 会把它挪开重建：查询本身是成功的，但要让用户知道
+            if let notice = HistoryNotice.shared.take() {
+                fputs("warning: " + notice + "\n", stderr)
+            }
 
             let attrs = try? FileManager.default.attributesOfItem(atPath: historyFile.path)
             let perms = (attrs?[.posixPermissions] as? NSNumber).map { String($0.intValue, radix: 8) }
