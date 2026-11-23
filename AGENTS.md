@@ -4,13 +4,16 @@ Instructions for AI coding agents (and human contributors) working on this repos
 
 ## What this project is
 
-A single-file macOS menu-bar app (~900 lines of Swift) that reads the current selection, sends it to an
+A native macOS menu-bar app that reads the current selection, sends it to an
 OpenAI-compatible endpoint, and streams the answer into a floating panel. CLI regression tests use a local HTTP fixture. The app has no server side.
 
 ## Layout
 
 ```
-Sources/AskAI/main.swift   # everything: config, selection capture, LLM call, OCR, UI, menu bar
+Sources/AskAI/main.swift   # menu, CLI, history, OCR and model requests
+Sources/AskAI/Selection.swift          # Accessibility and pasteboard capture
+Sources/AskAI/ResultPanel.swift        # per-selection requests and result controls
+Sources/AskAI/ConnectionSettings.swift # live provider configuration and native settings
 Package.swift              # SwiftPM manifest, depends on HotKey
 make-app.sh                # builds a release binary and assembles AskAI.app (Info.plist + codesign)
 README.md                  # English, primary
