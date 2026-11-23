@@ -14,13 +14,13 @@ Native Swift menu-bar app with no Dock icon.
 ## Features
 
 - **Explain selection** — select text, press the hotkey, watch the answer stream in;
-  it auto-scrolls while you stay at the bottom
+  it auto-scrolls while you stay at the bottom.
   If a stream is interrupted, the panel keeps the partial answer and shows the error. Only completed answers enter history.
 - **Four modes** — Explain / Translate / Summarize / Explain Code — choose a default in the menu bar, or rerun the same selection in a different mode from a result or history window. Switching cancels the previous request.
 - **Screenshot OCR** — if no text can be read from the selection, it falls back to a screen-region capture and Vision OCR
 - **History** — last 20 entries, reopen any from the menu
-- **Read aloud** — system TTS, picks a Chinese or English voice automatically
-- **Copy result** — press ⌘C in the panel (or click Copy); with text selected, ⌘C copies the selection
+- **Read aloud** — system TTS, picks a Chinese or English voice automatically; reads the answer without Markdown symbols
+- **Copy result** — press ⌘C in the panel (or click Copy) to copy the answer as Markdown source, without the reasoning trace; with text selected, ⌘C copies the selection
 - **Near the cursor** — the panel opens next to the selection instead of screen center
 - **Resizable** — drag to resize the result panel; the size is remembered
 - **Markdown rendering** — bold, italic, inline code and links in answers are rendered (block syntax shown verbatim)

@@ -30,6 +30,7 @@ final class ResultPanel: NSPanel {
     private let total: Int
     private let send: Send
     private let save: Save
+    private let pasteboard: NSPasteboard
     private let modePicker = NSPopUpButton()
     private let rangeLabel = NSTextField(labelWithString: "")
     private let fullButton = NSButton()
@@ -38,7 +39,7 @@ final class ResultPanel: NSPanel {
     private var sentCharacters = 0
     private var running: Task<Void, Never>?
     private var requestID = UUID()
-    private var spokenText = ""   // 未渲染的纯文本，供 TTS 使用（避免朗读 markdown 符号）
+    private var answerText = ""        // 回答的 Markdown 原文（不含思考过程）：复制与朗读只用它
     private var latestReasoning = ""   // 推理模型本次请求的思考过程（仅浮窗展示用）
 
     /// 浮窗尺寸：默认 550×310；拖拽调整后记住（panelWidth/panelHeight），换小屏时按可见高度兜底
@@ -50,11 +51,14 @@ final class ResultPanel: NSPanel {
         return NSSize(width: width, height: height)
     }
 
-    init(source: String, send: @escaping Send = { try await askLLM($0, mode: $1, connection: $2, onDelta: $3, onReasoning: $4) }, save: @escaping Save = appendHistory) {
+    init(source: String, pasteboard: NSPasteboard = .general,
+         send: @escaping Send = { try await askLLM($0, mode: $1, connection: $2, onDelta: $3, onReasoning: $4) },
+         save: @escaping Save = appendHistory) {
         self.source = source
         self.total = source.count
         self.send = send
         self.save = save
+        self.pasteboard = pasteboard
         super.init(contentRect: NSRect(origin: .zero, size: Self.panelSize()),
                    styleMask: [.titled, .closable, .nonactivatingPanel], backing: .buffered, defer: false)
         isReleasedWhenClosed = false
@@ -170,14 +174,14 @@ final class ResultPanel: NSPanel {
                                             { [weak self] text in
                     guard let self, self.requestID == id else { return }
                     partial = text
-                    self.setAnswer(self.displayed(text))
+                    self.setAnswer(text)
                 }, { [weak self] text in
                     guard let self, self.requestID == id else { return }
                     self.latestReasoning = text
-                    self.setAnswer(self.displayed(partial))
+                    self.setAnswer(partial)
                 })
                 guard requestID == id else { return }
-                setAnswer(displayed(answer))
+                setAnswer(answer)
                 // Accept completion on the main actor before handing persistence to the file lock.
                 let (save, source) = (self.save, self.source)
                 await Task.detached {
@@ -187,7 +191,7 @@ final class ResultPanel: NSPanel {
             } catch {
                 guard requestID == id else { return }
                 setAnswer(partial.isEmpty ? "❌ \(error.localizedDescription)"
-                    : displayed(partial) + "\n\n⚠️ " + L("回答中断", "Answer interrupted") + " — " + error.localizedDescription)
+                    : partial + "\n\n⚠️ " + L("回答中断", "Answer interrupted") + " — " + error.localizedDescription)
             }
         }
         return running
@@ -237,13 +241,20 @@ final class ResultPanel: NSPanel {
         return NSAttributedString(parsed)
     }
 
-    /// 更新答案文本。用户停在底部（或还没滚过）时跟随新内容滚动；
-    /// 翻上去看前文时不再强行拉回。
-    private func setAnswer(_ text: String) {
+    /// 朗读用的纯文本：去掉行内 Markdown 符号（链接只保留文字）；解析失败就按原文朗读。
+    static func speechText(_ markdown: String) -> String {
+        let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        guard let parsed = try? AttributedString(markdown: markdown, options: options) else { return markdown }
+        return String(parsed.characters)
+    }
+
+    /// 更新答案。content 是回答的 Markdown 原文，显示时再拼上思考过程。
+    /// 用户停在底部（或还没滚过）时跟随新内容滚动；翻上去看前文时不再强行拉回。
+    private func setAnswer(_ content: String) {
+        answerText = content
         let atBottom = textView.visibleRect.maxY >= textView.bounds.height - 48
-        spokenText = text
         textView.textStorage?.setAttributedString(
-            Self.renderedAnswer(text, baseFont: textView.font ?? .systemFont(ofSize: 14)))
+            Self.renderedAnswer(displayed(content), baseFont: textView.font ?? .systemFont(ofSize: 14)))
         if atBottom { textView.scrollToEndOfDocument(nil) }
     }
 
@@ -280,16 +291,18 @@ final class ResultPanel: NSPanel {
         return super.performKeyEquivalent(with: event)
     }
 
+    /// 复制回答的 Markdown 原文：粘贴到别处保留语法，不带思考过程。
     @objc private func copyAnswer() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(textView.string, forType: .string)
+        pasteboard.clearContents()
+        pasteboard.setString(answerText, forType: .string)
         NSSound.beep()
     }
 
     @objc private func speakAnswer() {
         if speaker.isSpeaking { speaker.stopSpeaking(at: .immediate); return }
-        let utterance = AVSpeechUtterance(string: spokenText)
-        let hasCJK = spokenText.unicodeScalars.contains { (0x4E00...0x9FFF).contains($0.value) }
+        let text = Self.speechText(answerText)
+        let utterance = AVSpeechUtterance(string: text)
+        let hasCJK = text.unicodeScalars.contains { (0x4E00...0x9FFF).contains($0.value) }
         utterance.voice = AVSpeechSynthesisVoice(language: hasCJK ? "zh-CN" : "en-US")
         utterance.rate = 0.5
         speaker.speak(utterance)

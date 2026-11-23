@@ -7,6 +7,26 @@ private func descendants(_ root: NSView) -> [NSView] {
     [root] + root.subviews.flatMap(descendants)
 }
 
+/// ⌘C 用例专用的剪贴板：测试不能清空并覆盖开发者的系统剪贴板。
+@MainActor
+private func isolatedPasteboard() -> NSPasteboard {
+    NSPasteboard.withUniqueName()
+}
+
+@MainActor
+private func answerView(of panel: ResultPanel) throws -> NSTextView {
+    let content = try #require(panel.contentView)
+    return try #require(descendants(content).compactMap { $0 as? NSTextView }.first)
+}
+
+@MainActor
+private func copyEvent(for panel: ResultPanel, flags: NSEvent.ModifierFlags = .command) throws -> NSEvent {
+    try #require(NSEvent.keyEvent(
+        with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0,
+        windowNumber: panel.windowNumber, context: nil,
+        characters: "c", charactersIgnoringModifiers: "c", isARepeat: false, keyCode: 8))
+}
+
 struct ResultPanelTests {
     @Test @MainActor func settingsWindowOpensAtFormSize() throws {
         _ = NSApplication.shared
@@ -137,21 +157,15 @@ struct ResultPanelTests {
 
     @Test @MainActor func commandCCopiesWholeAnswerWhenNothingSelected() throws {
         _ = NSApplication.shared
-        let panel = ResultPanel(source: "idempotency") { _, _, _, _, _ in "答案文本" }
+        let board = isolatedPasteboard()
+        defer { board.releaseGlobally() }
+        let panel = ResultPanel(source: "idempotency", pasteboard: board) { _, _, _, _, _ in "答案文本" }
         defer { panel.close() }
         panel.show(HistoryEntry(time: Date(), mode: "explain", source: "idempotency", answer: "答案文本"))
-        let content = try #require(panel.contentView)
-        let view = try #require(descendants(content).compactMap { $0 as? NSTextView }.first)
-        view.setSelectedRange(NSRange(location: 0, length: 0))
+        try answerView(of: panel).setSelectedRange(NSRange(location: 0, length: 0))
 
-        let copy = try #require(NSEvent.keyEvent(
-            with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0,
-            windowNumber: panel.windowNumber, context: nil,
-            characters: "c", charactersIgnoringModifiers: "c", isARepeat: false, keyCode: 8))
-
-        NSPasteboard.general.clearContents()
-        #expect(panel.performKeyEquivalent(with: copy))
-        #expect(NSPasteboard.general.string(forType: .string) == "答案文本")
+        #expect(panel.performKeyEquivalent(with: try copyEvent(for: panel)))
+        #expect(board.string(forType: .string) == "答案文本")
     }
 
     @Test @MainActor func commandCLeavesSelectionToSystem() throws {
@@ -159,17 +173,54 @@ struct ResultPanelTests {
         let panel = ResultPanel(source: "idempotency") { _, _, _, _, _ in "答案文本" }
         defer { panel.close() }
         panel.show(HistoryEntry(time: Date(), mode: "explain", source: "idempotency", answer: "答案文本"))
-        let content = try #require(panel.contentView)
-        let view = try #require(descendants(content).compactMap { $0 as? NSTextView }.first)
-        view.setSelectedRange(NSRange(location: 0, length: 2))
-
-        let copy = try #require(NSEvent.keyEvent(
-            with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0,
-            windowNumber: panel.windowNumber, context: nil,
-            characters: "c", charactersIgnoringModifiers: "c", isARepeat: false, keyCode: 8))
+        try answerView(of: panel).setSelectedRange(NSRange(location: 0, length: 2))
 
         // 有选区时不拦截，交给系统复制选区
-        #expect(panel.performKeyEquivalent(with: copy) == false)
+        #expect(panel.performKeyEquivalent(with: try copyEvent(for: panel)) == false)
+    }
+
+    // README: "history and copy keep the final answer"; issue #23: 思考过程仅供浏览。
+    @Test @MainActor func copyKeepsOnlyTheFinalAnswerOfReasoningModels() async throws {
+        _ = NSApplication.shared
+        let board = isolatedPasteboard()
+        defer { board.releaseGlobally() }
+        let panel = ResultPanel(source: "idempotency", pasteboard: board) { _, _, _, delta, reasoning in
+            await reasoning?("the model's scratchpad")
+            await delta?("final answer")
+            return "final answer"
+        } save: { _, _, _, _ in }
+        defer { panel.close() }
+        await panel.request(mode: historyMode("explain"))?.value
+
+        // 思考过程照常显示在正文上方，但不进入剪贴板
+        #expect(try answerView(of: panel).string.contains("scratchpad"))
+        #expect(board.string(forType: .string) == nil)
+        #expect(panel.performKeyEquivalent(with: try copyEvent(for: panel)))
+        #expect(board.string(forType: .string) == "final answer")
+    }
+
+    // Issue #21: 复制按钮仍复制原始 markdown 源文（粘贴到别处保留语法）。
+    @Test @MainActor func copyKeepsMarkdownSourceWhileTheViewIsRendered() async throws {
+        _ = NSApplication.shared
+        let board = isolatedPasteboard()
+        defer { board.releaseGlobally() }
+        let answer = "**bold** `code` [text](https://example.com)"
+        let panel = ResultPanel(source: "idempotency", pasteboard: board) { _, _, _, delta, _ in
+            await delta?(answer)
+            return answer
+        } save: { _, _, _, _ in }
+        defer { panel.close() }
+        await panel.request(mode: historyMode("explain"))?.value
+
+        #expect(try answerView(of: panel).string == "bold code text")
+        #expect(panel.performKeyEquivalent(with: try copyEvent(for: panel)))
+        #expect(board.string(forType: .string) == answer)
+    }
+
+    // Issue #21: 朗读不读 markdown 符号。
+    @Test @MainActor func speechTextDropsInlineMarkdown() {
+        #expect(ResultPanel.speechText("**bold** `code` [text](https://example.com)") == "bold code text")
+        #expect(ResultPanel.speechText("第一行普通中文\nSecond line") == "第一行普通中文\nSecond line")
     }
 
     @Test @MainActor func answerUsesDynamicTextColorForDarkMode() throws {
