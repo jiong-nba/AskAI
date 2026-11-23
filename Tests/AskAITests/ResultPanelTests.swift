@@ -102,4 +102,36 @@ struct ResultPanelTests {
         suite.set(50, forKey: "panelHeight")
         #expect(ResultPanel.panelSize(screenHeight: 900, defaults: suite) == NSSize(width: 420, height: 220))
     }
+
+    @Test @MainActor func answerMarkdownRendersInlineSyntax() throws {
+        let base = NSFont.systemFont(ofSize: 14)
+        let rich = ResultPanel.renderedAnswer("**加粗** 与 `code` 及普通文字\n第二行", baseFont: base)
+        // 行内语法符号被吃掉，内容与换行保留
+        #expect(!rich.string.contains("**") && !rich.string.contains("`"))
+        #expect(rich.string.contains("加粗") && rich.string.contains("code") && rich.string.contains("第二行"))
+        // 粗体片段真的带 bold trait，行内代码用等宽字体
+        var hasBold = false
+        var hasMono = false
+        rich.enumerateAttribute(.font, in: NSRange(location: 0, length: rich.length)) { font, _, _ in
+            guard let font = font as? NSFont else { return }
+            if font.fontDescriptor.symbolicTraits.contains(.bold) { hasBold = true }
+            if font.fontDescriptor.symbolicTraits.contains(.monoSpace) { hasMono = true }
+        }
+        #expect(hasBold && hasMono)
+    }
+
+    @Test @MainActor func answerMarkdownKeepsPlainTextAndBaseFont() throws {
+        let base = NSFont.systemFont(ofSize: 14)
+        // 无语法文本：内容与换行原样保留，且全文都带基础字体（不会掉回默认字号）
+        let plain = ResultPanel.renderedAnswer("第一行普通中文\nSecond line", baseFont: base)
+        #expect(plain.string == "第一行普通中文\nSecond line")
+        var unfixed: [NSRange] = []
+        plain.enumerateAttribute(.font, in: NSRange(location: 0, length: plain.length)) { font, range, _ in
+            if font == nil { unfixed.append(range) }
+        }
+        #expect(unfixed.isEmpty)
+        // 未闭合语法不崩溃，仍有内容
+        let broken = ResultPanel.renderedAnswer("**未闭合的加粗", baseFont: base)
+        #expect(broken.length > 0)
+    }
 }

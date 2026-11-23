@@ -23,6 +23,7 @@ Native Swift menu-bar app with no Dock icon.
 - **Copy result** — one click
 - **Near the cursor** — the panel opens next to the selection instead of screen center
 - **Resizable** — drag to resize the result panel; the size is remembered
+- **Markdown rendering** — bold, italic, inline code and links in answers are rendered (block syntax shown verbatim)
 - **Custom hotkey** — record it right in the menu
 - **Any OpenAI-compatible endpoint** — DeepSeek, OpenAI, Ollama, etc.
 
