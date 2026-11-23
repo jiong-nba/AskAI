@@ -5,8 +5,7 @@ Instructions for AI coding agents (and human contributors) working on this repos
 ## What this project is
 
 A single-file macOS menu-bar app (~900 lines of Swift) that reads the current selection, sends it to an
-OpenAI-compatible endpoint, and streams the answer into a floating panel. There is no test suite and no
-server side; correctness is verified by building and running one real query.
+OpenAI-compatible endpoint, and streams the answer into a floating panel. CLI regression tests use a local HTTP fixture. The app has no server side.
 
 ## Layout
 
@@ -43,6 +42,8 @@ open AskAI.app
    that ships assets (dictionary data, OCR models, fonts) is out of scope.
 
 ## Verifying a change
+
+After a release build, run `python3 Tests/test_cli.py` to exercise the CLI against a local fixture with isolated history.
 
 ```bash
 ./AskAI.app/Contents/MacOS/AskAI --check        # config, endpoint, permission state

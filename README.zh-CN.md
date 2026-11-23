@@ -127,7 +127,7 @@ tccutil reset Accessibility com.dsh.AskAI
 
 - **API Key** 存在 `defaults`（`~/Library/Preferences/com.dsh.AskAI.plist`），明文，仅本机
 - **历史记录**存在 `~/Library/Application Support/AskAI/history.json`，权限 `0600`，最多 20 条，
-  菜单「历史记录 → 清空历史」可一键删除
+  菜单栏和命令行并发查询共用这 20 条记录，可通过「历史记录 → 清空历史」删除
 - 选中文本只发送到你配置的接口地址，工具本身不收集任何数据
 
 ## 实现要点
