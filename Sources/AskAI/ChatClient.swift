@@ -62,6 +62,8 @@ func askLLM(_ input: QueryInput, mode: PromptMode, connection: ConnectionSetting
                           userInfo: [NSLocalizedDescriptionKey: L("API 出错 (\(code)): \(raw.prefix(200))", "API error (\(code)): \(raw.prefix(200))")])
         }
 
+        // 服务端确认完成后 readChatStream 会提前返回；读完或出错后都把底层请求收掉，不让连接挂着
+        defer { bytes.task.cancel() }
         return try await readChatStream(bytes.lines, onDelta: onDelta, onReasoning: onReasoning)
     } onCancel: {
         bytes.task.cancel()
@@ -84,13 +86,15 @@ where Lines.Element == String {
             break
         }
         guard !payload.isEmpty else { continue }
-        let obj = try JSONSerialization.jsonObject(with: Data(payload.utf8)) as? [String: Any]
-        if let error = obj?["error"], !(error is NSNull) {
+        // 不是 JSON 的 data 行（心跳、代理注入的内容）跳过，不让整段回答失败；
+        // 真被截断的流仍会在循环结束后因为 finished 为假而报错
+        guard let obj = try? JSONSerialization.jsonObject(with: Data(payload.utf8)) as? [String: Any] else { continue }
+        if let error = obj["error"], !(error is NSNull) {
             let message = (error as? [String: Any])?["message"] as? String
             throw NSError(domain: "AskAI", code: 3, userInfo: [NSLocalizedDescriptionKey:
                 message ?? L("服务端报告流式请求失败", "The server reported a streaming error")])
         }
-        guard let choices = obj?["choices"] as? [[String: Any]], let choice = choices.first else { continue }
+        guard let choices = obj["choices"] as? [[String: Any]], let choice = choices.first else { continue }
         if let delta = choice["delta"] as? [String: Any] {
             // 推理模型（deepseek-reasoner 等）先流式输出思考过程，正文随后；分开累计，
             // onReasoning 只用于浮窗实时展示，返回值与历史仍只含正文
@@ -108,7 +112,10 @@ where Lines.Element == String {
                 throw NSError(domain: "AskAI", code: 3, userInfo: [NSLocalizedDescriptionKey:
                     L("生成提前结束（\(reason)）", "Generation ended early (\(reason))")])
             }
+            // 服务端已经确认完成：到此为止。继续读到连接结束的话，对方关闭得不干净
+            // （或不发 [DONE]）就会把一段完整的回答判成失败
             finished = true
+            break
         }
     }
     guard finished else {
