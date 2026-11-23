@@ -314,7 +314,7 @@ func askLLM(_ text: String, mode: PromptMode, onDelta: ((String) -> Void)? = nil
     if streaming { body["stream"] = true }
     req.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-    guard streaming else {
+    guard let onDelta else {
         let (data, resp) = try await URLSession.shared.data(for: req)
         let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
         guard code == 200 else {
@@ -348,19 +348,43 @@ func askLLM(_ text: String, mode: PromptMode, onDelta: ((String) -> Void)? = nil
                       userInfo: [NSLocalizedDescriptionKey: L("API 出错 (\(code)): \(raw.prefix(200))", "API error (\(code)): \(raw.prefix(200))")])
     }
 
+    return try await readChatStream(bytes.lines, onDelta: onDelta)
+}
+
+func readChatStream<Lines: AsyncSequence>(_ lines: Lines, onDelta: (String) -> Void) async throws -> String
+where Lines.Element == String {
     var full = ""
-    for try await line in bytes.lines {
+    var finished = false
+    for try await line in lines {
         guard line.hasPrefix("data:") else { continue }
         let payload = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
-        if payload == "[DONE]" { break }
-        guard let d = payload.data(using: .utf8),
-              let obj = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
-              let choices = obj["choices"] as? [[String: Any]],
-              let delta = choices.first?["delta"] as? [String: Any],
-              let piece = delta["content"] as? String, !piece.isEmpty
-        else { continue }
-        full += piece
-        onDelta?(full)
+        if payload == "[DONE]" {
+            finished = true
+            break
+        }
+        guard !payload.isEmpty else { continue }
+        let obj = try JSONSerialization.jsonObject(with: Data(payload.utf8)) as? [String: Any]
+        if let error = obj?["error"], !(error is NSNull) {
+            let message = (error as? [String: Any])?["message"] as? String
+            throw NSError(domain: "AskAI", code: 3, userInfo: [NSLocalizedDescriptionKey:
+                message ?? L("服务端报告流式请求失败", "The server reported a streaming error")])
+        }
+        guard let choices = obj?["choices"] as? [[String: Any]], let choice = choices.first else { continue }
+        if let delta = choice["delta"] as? [String: Any], let piece = delta["content"] as? String, !piece.isEmpty {
+            full += piece
+            onDelta(full)
+        }
+        if let reason = choice["finish_reason"] as? String, !reason.isEmpty {
+            guard reason == "stop" else {
+                throw NSError(domain: "AskAI", code: 3, userInfo: [NSLocalizedDescriptionKey:
+                    L("生成提前结束（\(reason)）", "Generation ended early (\(reason))")])
+            }
+            finished = true
+        }
+    }
+    guard finished else {
+        throw NSError(domain: "AskAI", code: 3, userInfo: [NSLocalizedDescriptionKey:
+            L("连接在服务端确认完成前关闭", "Connection closed before the server confirmed completion")])
     }
     guard !full.isEmpty else {
         throw NSError(domain: "AskAI", code: 2,
@@ -718,9 +742,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         startEscMonitor()
 
         Task.detached { [mode] in
+            var partial = ""
             do {
                 // 流式：边收边显示
                 let answer = try await askLLM(source, mode: mode) { full in
+                    partial = full
                     DispatchQueue.main.async { setPanelText(panel, full) }
                 }
                 do {
@@ -729,7 +755,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                     NSLog("AskAI: failed to save history: \(error.localizedDescription)")
                 }
             } catch {
-                await MainActor.run { setPanelText(panel, "❌ \(error.localizedDescription)") }
+                let message = partial.isEmpty ? "❌ \(error.localizedDescription)"
+                    : partial + "\n\n⚠️ " + L("回答中断", "Answer interrupted") + " — " + error.localizedDescription
+                DispatchQueue.main.async { setPanelText(panel, message) }
             }
         }
     }

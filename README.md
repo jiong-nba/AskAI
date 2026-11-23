@@ -12,6 +12,7 @@ Lightweight (~300 KB on disk, ~22 MB resident), no Dock icon, native Swift, sing
 ## Features
 
 - **Explain selection** — select text, press the hotkey, watch the answer stream in
+  If a stream is interrupted, the panel keeps the partial answer and shows the error. Only completed answers enter history.
 - **Four modes** — Explain / Translate / Summarize / Explain Code (switch from the menu, remembered)
 - **Screenshot OCR** — if no text can be read from the selection, it falls back to a screen-region capture and Vision OCR
 - **History** — last 20 entries, reopen any from the menu

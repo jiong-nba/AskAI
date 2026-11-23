@@ -12,5 +12,6 @@ let package = Package(
             name: "AskAI",
             dependencies: ["HotKey"]
         ),
+        .testTarget(name: "AskAITests", dependencies: ["AskAI"]),
     ]
 )

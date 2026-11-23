@@ -43,6 +43,7 @@ open AskAI.app
 
 ## Verifying a change
 
+Run `swift test --disable-xctest` with Swift 6+ to check streaming completion and interruption.
 After a release build, run `python3 Tests/test_cli.py` to exercise the CLI against a local fixture with isolated history.
 
 ```bash
@@ -50,8 +51,7 @@ After a release build, run `python3 Tests/test_cli.py` to exercise the CLI again
 ./AskAI.app/Contents/MacOS/AskAI --ask "throttling"   # real request + history round trip
 ```
 
-`--ask` is the only end-to-end check available: it exercises the API call, the streaming parser (non-streaming
-path), history persistence, and file permissions. Run it after touching any of those. It costs one small API
+`--ask` exercises the non-streaming API call, history persistence, and file permissions. Run it after touching any of those. It costs one small API
 call, so do not loop on it.
 
 When verifying accessibility state, remember that `--check` launched from a terminal may report the terminal's
