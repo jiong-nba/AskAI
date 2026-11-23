@@ -41,8 +41,10 @@ open AskAI.app
    `sk-...` string and no personal absolute path (`/Users/<name>`) leaked into sources or docs.
 3. **Keep both READMEs in sync.** Any user-visible change (flag, config key, feature) must land in
    `README.md` and `README.zh-CN.md`, and in the release notes of the next tag.
-4. **Do not grow the dependency list without a reason.** The app's selling point is being ~300 KB. Anything
-   that ships assets (dictionary data, OCR models, fonts) is out of scope.
+4. **Do not grow the dependency list without a reason.** The app's selling point is being small. Measured
+   baseline at v1.1.1 (Apple Silicon, release build): binary ~570 KB, bundle ~580 KB, resident ~45 MB.
+   Treat roughly 1 MB of bundle size and 60 MB of RSS as the ceiling — anything approaching that needs a
+   justification. Anything that ships assets (dictionary data, OCR models, fonts) is out of scope.
 
 ## Verifying a change
 
@@ -68,7 +70,10 @@ Run `bash Tests/test_packaging.sh` after changing the packager. It checks signin
 - Swift 5.9+, macOS 13+ target, no force-unwraps except for compile-time literals (URL, key codes)
 - All UI work on the main thread; network work in `Task`, UI updates via `DispatchQueue.main.async` or `MainActor`
 - User-facing strings go through `L(zh:en:)`; never hardcode a single language in UI code. Docs are bilingual and must stay in sync
-- Keep `main.swift` a single file unless it exceeds ~1200 lines; comments explain *why*, not *what*
+- Split by responsibility, not by size: `main.swift` (menu, CLI, history, OCR, requests), `Selection.swift`
+  (capture), `ResultPanel.swift` (panel + per-selection requests), `ConnectionSettings.swift` (provider config
+  and settings UI). Add a new file rather than letting `main.swift` grow past ~900 lines
+- Comments explain *why*, not *what*
 
 ## Shell conventions
 
