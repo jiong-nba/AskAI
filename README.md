@@ -13,7 +13,8 @@ Native Swift menu-bar app with no Dock icon.
 
 ## Features
 
-- **Explain selection** — select text, press the hotkey, watch the answer stream in
+- **Explain selection** — select text, press the hotkey, watch the answer stream in;
+  it auto-scrolls while you stay at the bottom
   If a stream is interrupted, the panel keeps the partial answer and shows the error. Only completed answers enter history.
 - **Four modes** — Explain / Translate / Summarize / Explain Code — choose a default in the menu bar, or rerun the same selection in a different mode from a result or history window. Switching cancels the previous request.
 - **Screenshot OCR** — if no text can be read from the selection, it falls back to a screen-region capture and Vision OCR
