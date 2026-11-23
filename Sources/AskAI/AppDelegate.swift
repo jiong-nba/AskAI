@@ -383,9 +383,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     /// 用户拖拽结束后记住浮窗尺寸，下次打开沿用
     func windowDidEndLiveResize(_ notification: Notification) {
         guard let panel = notification.object as? ResultPanel else { return }
-        let defaults = UserDefaults.standard
-        defaults.set(Int(panel.frame.width), forKey: "panelWidth")
-        defaults.set(Int(panel.frame.height), forKey: "panelHeight")
+        ResultPanel.rememberSize(of: panel)
     }
 
     func windowWillClose(_ notification: Notification) {

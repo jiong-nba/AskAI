@@ -9,12 +9,14 @@ func runCheck() -> Never {
     let bundleID = Bundle.main.bundleIdentifier ?? L("(未在 .app 内运行)", "(not running inside a .app)")
     let envKey = ProcessInfo.processInfo.environment["ASKAI_KEY"]
     let defaultsKey = defaults.string(forKey: "apiKey")
-    let yes = L("已设置", "set")
-    let no  = L("未设置", "not set")
+    // 只打印是否设置与长度，不打印 Key 本身
+    func status(_ key: String?) -> String {
+        key.map { "\(L("已设置", "set")) (\($0.count) chars)" } ?? L("未设置", "not set")
+    }
     print(L("bundle id        : ", "bundle id        : ") + bundleID)
     print(L("defaults 域      : ", "defaults domain  : ") + bundleID)
-    print("env ASKAI_KEY    : " + (envKey == nil ? no : "\(yes) (\(envKey!.count) chars)"))
-    print("defaults apiKey  : " + (defaultsKey == nil ? no : "\(yes) (\(defaultsKey!.count) chars)"))
+    print("env ASKAI_KEY    : " + status(envKey))
+    print("defaults apiKey  : " + status(defaultsKey))
     print(L("优先级           : env ASKAI_KEY > defaults apiKey", "precedence       : env ASKAI_KEY > defaults apiKey"))
     print(L("生效模型         : ", "model            : ") + connection.model)
     print(L("接口地址         : ", "endpoint         : ") + connection.url.absoluteString)

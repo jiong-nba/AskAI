@@ -112,18 +112,82 @@ struct ResultPanelTests {
         let suite = try #require(UserDefaults(suiteName: name))
         suite.removePersistentDomain(forName: name)
         defer { suite.removePersistentDomain(forName: name) }
+        let wide = NSRect(x: 0, y: 0, width: 1440, height: 900)
         // 无记录 → 默认尺寸
-        #expect(ResultPanel.panelSize(screenHeight: 900, defaults: suite) == NSSize(width: 550, height: 310))
+        #expect(ResultPanel.panelSize(visible: wide, defaults: suite) == NSSize(width: 550, height: 310))
         // 记住用户拖拽结果
         suite.set(800, forKey: "panelWidth")
         suite.set(600, forKey: "panelHeight")
-        #expect(ResultPanel.panelSize(screenHeight: 900, defaults: suite) == NSSize(width: 800, height: 600))
-        // 换小屏：高度按可见区兜底，宽度不变
-        #expect(ResultPanel.panelSize(screenHeight: 500, defaults: suite) == NSSize(width: 800, height: 480))
+        #expect(ResultPanel.panelSize(visible: wide, defaults: suite) == NSSize(width: 800, height: 600))
+        // 换小屏：高度按可见区兜底，宽度放得下就不变
+        let short = NSRect(x: 0, y: 0, width: 1440, height: 500)
+        #expect(ResultPanel.panelSize(visible: short, defaults: suite) == NSSize(width: 800, height: 480))
+        // 在外接大屏上拖宽了、回到窄屏：宽度也收进可见区，否则左侧的关闭按钮和模式下拉落到屏幕外
+        suite.set(2400, forKey: "panelWidth")
+        #expect(ResultPanel.panelSize(visible: wide, defaults: suite) == NSSize(width: 1424, height: 600))
         // 脏数据不低于 minSize
         suite.set(100, forKey: "panelWidth")
         suite.set(50, forKey: "panelHeight")
-        #expect(ResultPanel.panelSize(screenHeight: 900, defaults: suite) == NSSize(width: 420, height: 220))
+        #expect(ResultPanel.panelSize(visible: wide, defaults: suite) == NSSize(width: 420, height: 220))
+    }
+
+    // Regression: the frame height includes the title bar and the content height does not. Storing the
+    // former and restoring it as the latter made the panel one title bar taller after every resize.
+    @Test @MainActor func rememberedSizeIsTheContentSize() throws {
+        _ = NSApplication.shared
+        let name = "AskAI.rememberSize.tests"
+        let suite = try #require(UserDefaults(suiteName: name))
+        suite.removePersistentDomain(forName: name)
+        defer { suite.removePersistentDomain(forName: name) }
+        let board = NSPasteboard.withUniqueName()
+        defer { board.releaseGlobally() }
+        let panel = ResultPanel(source: "idempotency", pasteboard: board) { _, _, _, _, _ in "x" }
+        defer { panel.close() }
+        panel.setContentSize(NSSize(width: 700, height: 400))
+        #expect(panel.frame.height > 400)   // a titled window is taller than its content
+        ResultPanel.rememberSize(of: panel, defaults: suite)
+        #expect(ResultPanel.panelSize(visible: nil, defaults: suite) == NSSize(width: 700, height: 400))
+    }
+
+    // A width left over from a wide external display must not push the panel's left edge off a smaller screen.
+    @Test @MainActor func showNearMouseKeepsAnOversizedPanelOnScreen() throws {
+        _ = NSApplication.shared
+        let standard = UserDefaults.standard
+        let oldWidth = standard.object(forKey: "panelWidth")
+        defer {
+            if let oldWidth { standard.set(oldWidth, forKey: "panelWidth") } else { standard.removeObject(forKey: "panelWidth") }
+        }
+        guard let visible = NSScreen.main?.visibleFrame else { return }
+        standard.set(5_000, forKey: "panelWidth")
+        let board = NSPasteboard.withUniqueName()
+        defer { board.releaseGlobally() }
+        let panel = ResultPanel(source: "idempotency", pasteboard: board) { _, _, _, _, _ in "x" }
+        defer { panel.close() }
+
+        panel.showNearMouse()
+
+        #expect(panel.frame.width <= visible.width)
+        #expect(panel.frame.minX >= visible.minX - 0.5 && panel.frame.maxX <= visible.maxX + 0.5)
+        #expect(panel.frame.minY >= visible.minY - 0.5 && panel.frame.maxY <= visible.maxY + 0.5)
+    }
+
+    @Test @MainActor func titleFlattensLineBreaks() {
+        #expect(ResultPanel.title(for: "line one\nline two\r\nline three") == "line one line two line three")
+        #expect(ResultPanel.title(for: String(repeating: "字", count: 60)).count == 40)
+    }
+
+    // Caps Lock and Fn are state, not part of the shortcut: ⌘C must still copy while they are on.
+    @Test @MainActor func commandCStillCopiesWithCapsLockOn() throws {
+        _ = NSApplication.shared
+        let board = isolatedPasteboard()
+        defer { board.releaseGlobally() }
+        let panel = ResultPanel(source: "idempotency", pasteboard: board) { _, _, _, _, _ in "answer" }
+        defer { panel.close() }
+        panel.show(HistoryEntry(time: Date(), mode: "explain", source: "idempotency", answer: "answer"))
+        try answerView(of: panel).setSelectedRange(NSRange(location: 0, length: 0))
+
+        #expect(panel.performKeyEquivalent(with: try copyEvent(for: panel, flags: [.command, .capsLock])))
+        #expect(board.string(forType: .string) == "answer")
     }
 
     @Test @MainActor func answerMarkdownRendersInlineSyntax() throws {
