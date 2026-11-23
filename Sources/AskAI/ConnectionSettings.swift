@@ -9,10 +9,13 @@ struct ConnectionSettings {
     static let defaultURL = URL(string: "https://api.deepseek.com/chat/completions")!
     static let defaultModel = "deepseek-chat"
     static let defaultSummaryLimit = 16_000
+    static let defaultTemperature: Double = 0.3
     let url: URL
     let model: String
     let apiKey: String
     let summaryLimit: Int
+    /// nil 表示不发送，用服务商的默认值：OpenAI 的推理模型（o 系列、GPT-5）对非默认值直接返回 400
+    var temperature: Double? = defaultTemperature
 
     // Keep the v1.1.1 interpretation of existing defaults. New form values are validated before saving.
     static func storedEndpoint(_ text: String) -> URL? {
@@ -40,13 +43,20 @@ struct ConnectionSettings {
         resolvedKey(environmentKey: environmentKey, savedKey: nil) != ""
     }
 
+    /// defaults 里的 temperature：负数（约定写 -1）表示不发送。
+    static func storedTemperature(defaults: UserDefaults) -> Double? {
+        guard let number = defaults.object(forKey: "temperature") as? NSNumber else { return defaultTemperature }
+        return number.doubleValue < 0 ? nil : number.doubleValue
+    }
+
     static func current(defaults: UserDefaults = .standard,
                         environmentKey: String? = ProcessInfo.processInfo.environment["ASKAI_KEY"]) -> Self {
         let limit = defaults.integer(forKey: "fullSummaryChars")
         return Self(url: defaults.string(forKey: "baseURL").flatMap(storedEndpoint) ?? defaultURL,
                     model: defaults.string(forKey: "model") ?? defaultModel,
                     apiKey: resolvedKey(environmentKey: environmentKey, savedKey: defaults.string(forKey: "apiKey")),
-                    summaryLimit: limit >= QueryInput.previewLimit ? limit : defaultSummaryLimit)
+                    summaryLimit: limit >= QueryInput.previewLimit ? limit : defaultSummaryLimit,
+                    temperature: storedTemperature(defaults: defaults))
     }
 }
 
@@ -55,6 +65,7 @@ struct ConnectionDraft: Equatable {
     var model: String
     var savedKey: String
     var limit: String
+    var temperature: String
 
     init(defaults: UserDefaults = .standard) {
         let current = ConnectionSettings.current(defaults: defaults)
@@ -62,6 +73,7 @@ struct ConnectionDraft: Equatable {
         model = current.model
         savedKey = defaults.string(forKey: "apiKey") ?? ""
         limit = String(current.summaryLimit)
+        temperature = current.temperature.map { "\($0)" } ?? "-1"
     }
 
     func connection(environmentKey: String?) throws -> ConnectionSettings {
@@ -76,7 +88,13 @@ struct ConnectionDraft: Equatable {
         guard let count = Int(limit), count >= QueryInput.previewLimit else {
             throw AskError(L("全文上限至少为 2000 字。", "The full-summary limit must be at least 2000 characters."))
         }
-        return ConnectionSettings(url: url, model: name, apiKey: key, summaryLimit: count)
+        let degrees = Double(temperature.trimmingCharacters(in: .whitespacesAndNewlines))
+        guard let degrees, degrees == -1 || (0...2).contains(degrees) else {
+            throw AskError(L("Temperature 需在 0 到 2 之间；填 -1 表示不发送，使用服务商默认值。",
+                             "Temperature must be between 0 and 2; enter -1 to leave it to the provider."))
+        }
+        return ConnectionSettings(url: url, model: name, apiKey: key, summaryLimit: count,
+                                  temperature: degrees < 0 ? nil : degrees)
     }
 
     func testConnection(environmentKey: String?, session: URLSession = .shared) async throws {
@@ -91,6 +109,7 @@ struct ConnectionDraft: Equatable {
         defaults.set(settings.model, forKey: "model")
         if !ConnectionSettings.hasEnvironmentKey(environmentKey) { defaults.set(settings.apiKey, forKey: "apiKey") }
         defaults.set(settings.summaryLimit, forKey: "fullSummaryChars")
+        defaults.set(settings.temperature ?? -1, forKey: "temperature")
     }
 }
 
@@ -111,6 +130,8 @@ struct ConnectionSettingsView: View {
                 LabeledContent("API Key", value: L("由 ASKAI_KEY 提供", "Provided by ASKAI_KEY"))
             }
             TextField(L("全文总结上限（字符）", "Full-summary limit (characters)"), text: $draft.limit)
+            TextField(L("Temperature（-1 = 不发送，用服务商默认值）", "Temperature (-1 = leave it to the provider)"),
+                      text: $draft.temperature)
             Text(status).font(.callout).lineLimit(3).textSelection(.enabled)
                 .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
                 .help(status)
