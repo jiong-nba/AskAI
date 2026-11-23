@@ -136,6 +136,8 @@ rm -f k.pem id.p12 c.pem
 ASKAI_SIGN_ID="AskAI Local" ./make-app.sh
 ```
 
+If the requested identity is unavailable or signature verification fails, the build exits with an error and keeps the previous app bundle.
+
 The first signature triggers a Keychain prompt — choose **Always Allow**.
 
 If the Accessibility list has accumulated stale entries, clear them:

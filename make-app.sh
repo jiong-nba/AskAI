@@ -8,12 +8,14 @@ echo "==> swift build -c release"
 swift build -c release
 
 APP="AskAI.app"
-echo "==> 组装 $APP"
-rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS"
-cp .build/release/AskAI "$APP/Contents/MacOS/AskAI"
+STAGE_DIR=$(mktemp -d "./.AskAI-build.XXXXXX")
+trap 'rm -rf "${STAGE_DIR}"' EXIT
+STAGED_APP="${STAGE_DIR}/${APP}"
+echo "==> 组装 ${APP}"
+mkdir -p "${STAGED_APP}/Contents/MacOS"
+cp .build/release/AskAI "${STAGED_APP}/Contents/MacOS/AskAI"
 
-cat > "$APP/Contents/Info.plist" <<'EOF'
+cat > "${STAGED_APP}/Contents/Info.plist" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -37,27 +39,30 @@ EOF
 #               授权失效，需要到系统设置里重新勾选一次；
 #   稳定签名：先在「钥匙串访问」创建自签署代码签名证书（步骤见 README），
 #            然后 ASKAI_SIGN_ID="证书名" ./make-app.sh，重建不再丢授权。
-SIGN_ID="${ASKAI_SIGN_ID:-}"
-if [ -n "$SIGN_ID" ]; then
-    # 先确认证书真实存在：拼错证书名时 codesign 仍会返回 0 但产物不可信，
-    # 这里提前检查并回退，避免"看起来打包成功实际没签上"。
-    if security find-identity -v -p codesigning 2>/dev/null | grep -q "$SIGN_ID"; then
-        echo "==> 稳定签名：${SIGN_ID}（首次会弹钥匙串访问确认，选『始终允许』）"
-        codesign --force -s "${SIGN_ID}" "$APP"
-    else
-        echo "!! 找不到代码签名证书『${SIGN_ID}』，可用的证书有：" >&2
-        security find-identity -v -p codesigning 2>/dev/null >&2 || echo "!!   （无）" >&2
-        echo "!! 回退为 ad-hoc 签名：重建后需重新授权辅助功能" >&2
-        codesign --force -s - "$APP"
-    fi
-else
+SIGN_ID="${ASKAI_SIGN_ID:--}"
+if [[ "${SIGN_ID}" == "-" ]]; then
     echo "==> ad-hoc 签名（注意：下次重建后需重新授权辅助功能，详见 README）"
-    codesign --force -s - "$APP"
+else
+    echo "==> 稳定签名：${SIGN_ID}"
 fi
+codesign --force --sign "${SIGN_ID}" "${STAGED_APP}"
 
 echo "==> 验证签名"
-codesign --verify --strict "$APP"          # 校验失败会直接中断脚本
-codesign -dv "$APP" 2>&1 | grep -E "Identifier=|Authority=|Signature=" || true
+codesign --verify --strict "${STAGED_APP}"
+codesign -dv "${STAGED_APP}" 2>&1 | grep -E "Identifier=|Authority=|Signature=" || true
 
-echo "完成：$PWD/$APP"
+# 同一文件系统内交换目录。旧 bundle 在交换成功后才由 EXIT trap 清理。
+swift - "${STAGED_APP}" "${APP}" <<'SWIFT'
+import Darwin
+
+let staged = CommandLine.arguments[1], destination = CommandLine.arguments[2]
+if renamex_np(staged, destination, UInt32(RENAME_EXCL)) != 0 {
+    guard errno == EEXIST, renamex_np(staged, destination, UInt32(RENAME_SWAP)) == 0 else {
+        perror("install AskAI.app")
+        exit(EXIT_FAILURE)
+    }
+}
+SWIFT
+
+echo "完成：${PWD}/${APP}"
 echo "后续：defaults write com.dsh.AskAI apiKey sk-你的密钥 && open AskAI.app"

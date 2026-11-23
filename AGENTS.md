@@ -58,6 +58,8 @@ When verifying accessibility state, remember that `--check` launched from a term
 grant rather than the app's; the authoritative signals are the toggle in System Settings and the app's own
 behaviour.
 
+Run `bash Tests/test_packaging.sh` after changing the packager. It checks signing and replacement in a temporary directory.
+
 ## Code conventions
 
 - Swift 5.9+, macOS 13+ target, no force-unwraps except for compile-time literals (URL, key codes)
