@@ -20,6 +20,7 @@ Native Swift menu-bar app with no Dock icon.
 - **History** — last 20 entries, reopen any from the menu
 - **Read aloud** — system TTS, picks a Chinese or English voice automatically
 - **Copy result** — one click
+- **Near the cursor** — the panel opens next to the selection instead of screen center
 - **Custom hotkey** — record it right in the menu
 - **Any OpenAI-compatible endpoint** — DeepSeek, OpenAI, Ollama, etc.
 
@@ -162,7 +163,7 @@ tccutil reset Accessibility com.dsh.AskAI
 | Read selection | Read the Accessibility selection first. Fall back to ⌘C, wait for a pasteboard change, then restore the previous clipboard |
 | Screenshot OCR | `screencapture -i` + Vision framework |
 | Streaming | `URLSession.bytes` + SSE line parsing |
-| Floating window | non-activating `NSPanel`, close with ✕ or Esc |
+| Floating window | non-activating `NSPanel` shown near the cursor; close with ✕ or Esc |
 | Speech | `AVSpeechSynthesizer` |
 
 ## Limitations

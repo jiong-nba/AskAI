@@ -19,6 +19,7 @@
 - **历史记录**：最近 20 条，菜单里点回看
 - **朗读结果**：系统 TTS，中英文自动选嗓音
 - **结果可复制**：浮窗「复制」按钮
+- **就近显示**：结果浮窗出现在鼠标附近，长结果不必回屏幕正中查看
 - **快捷键自定义**：菜单里直接按键录制
 - **兼容任意 OpenAI 格式接口**：DeepSeek / OpenAI / 本地 Ollama 等
 
@@ -142,7 +143,7 @@ tccutil reset Accessibility com.dsh.AskAI
 | 取选中文本 | 优先直接读辅助功能选区；回退时模拟 ⌘C，检测剪贴板更新后还原 |
 | 截图 OCR | `screencapture -i` + Vision 框架 |
 | 流式输出 | `URLSession.bytes` 逐行解析 SSE |
-| 浮窗 | 非激活 `NSPanel`，✕ 或 Esc 关闭 |
+| 浮窗 | 非激活 `NSPanel`，出现在鼠标附近，✕ 或 Esc 关闭 |
 | 朗读 | `AVSpeechSynthesizer` |
 
 ## 已知局限
