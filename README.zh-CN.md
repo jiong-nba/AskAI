@@ -61,6 +61,8 @@ open AskAI.app
 | 模式 | 菜单 🤖 →「模式」 |
 | 历史 | 编辑 `~/Library/Application Support/AskAI/history.json` |
 | 界面语言 | `defaults write com.dsh.AskAI lang zh`（或 `en`；默认跟随系统） |
+| Temperature | `defaults write com.dsh.AskAI temperature 0.3`（0–2；`-1` 表示不发送、用服务商默认值。OpenAI 的推理模型如 o 系列、GPT-5 只接受默认值，请设为 `-1`） |
+| ⌘C 回退等待 | `defaults write com.dsh.AskAI copyTimeoutMs 350`（等 ⌘C 生效的毫秒数，超时则落到截图 OCR；目标应用响应慢可调大，范围 100–5000） |
 
 语言回落规则：系统首选语言不是中文时，界面回落到英文，此时「翻译」模式的目标语言是英文
 （若原文本身是英文，则译为简体中文，避免原样输出）。在非中文系统上想用中文界面，请显式设置 `lang`。
@@ -147,7 +149,7 @@ tccutil reset Accessibility com.dsh.AskAI
 | 取选中文本 | 优先直接读辅助功能选区；回退时模拟 ⌘C，检测剪贴板更新后还原 |
 | 截图 OCR | `screencapture -i` + Vision 框架 |
 | 流式输出 | `URLSession.bytes` 逐行解析 SSE |
-| 浮窗 | 非激活 `NSPanel`，出现在鼠标附近，✕ 或 Esc 关闭 |
+| 浮窗 | 非激活 `NSPanel`，出现在鼠标附近；点 ✕ 关闭，或浮窗有焦点时按 Esc（在别的应用里按 Esc 不会关掉它） |
 | 朗读 | `AVSpeechSynthesizer` |
 
 ## 已知局限
