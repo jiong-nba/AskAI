@@ -15,6 +15,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var keyMonitor: Any?
     private var recording = false
     private var settingsWindow: NSWindow?
+    private var modesWindow: NSWindow?
+    private let modeMenu = NSMenu()   // 条目在 refreshMenu() 里填
     private var lastPanel: ResultPanel?        // 记住上一个结果窗，新结果出来时先关掉
 
     private var hotkeyDesc: String { defaults.string(forKey: "hotkeyDesc") ?? "⌘⇧E" }
@@ -29,14 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         menu.addItem(info)
         menu.addItem(.separator())
 
-        // 模式切换（单选）
-        let modeMenu = NSMenu()
-        for m in PromptMode.all {
-            let it = NSMenuItem(title: m.title, action: #selector(selectMode(_:)), keyEquivalent: "")
-            it.target = self
-            it.representedObject = m.key
-            modeMenu.addItem(it)
-        }
+        // 模式切换（单选）。条目每次打开菜单时重建：设置窗里增删的自定义模式要立即出现
         let modeItem = NSMenuItem(title: L("模式", "Mode"), action: nil, keyEquivalent: "")
         modeItem.submenu = modeMenu
         menu.addItem(modeItem)
@@ -51,6 +46,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         let settings = NSMenuItem(title: L("设置…", "Settings…"), action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
         menu.addItem(settings)
+
+        let modes = NSMenuItem(title: L("自定义模式…", "Custom Modes…"), action: #selector(openModes), keyEquivalent: "")
+        modes.target = self
+        menu.addItem(modes)
 
         let setHotkey = NSMenuItem(title: L("设置快捷键…（当前 \(hotkeyDesc)）", "Set Hotkey… (now \(hotkeyDesc))"),
                                    action: #selector(openRecorder), keyEquivalent: "")
@@ -96,16 +95,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         settingsWindow?.makeKeyAndOrderFront(nil)
     }
 
-    /// 每次打开菜单时刷新勾选状态与历史条目
+    @objc private func openModes() {
+        if modesWindow == nil {
+            let window = makeModesWindow { [weak self] in self?.refreshMenu() }
+            window.delegate = self
+            window.center()
+            modesWindow = window
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        modesWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    /// 每次打开菜单时刷新勾选状态、模式列表与历史条目
     func menuWillOpen(_ menu: NSMenu) { refreshMenu() }
 
     private func refreshMenu() {
         guard let menu = statusItem?.menu else { return }
         let cur = currentMode().key
-        for item in menu.items where item.submenu !== statusItem?.menu {
-            if let sub = item.submenu, item.title == L("模式", "Mode") {
-                for m in sub.items { m.state = (m.representedObject as? String) == cur ? .on : .off }
-            }
+        modeMenu.removeAllItems()
+        for m in PromptMode.all() {
+            let it = NSMenuItem(title: m.title, action: #selector(selectMode(_:)), keyEquivalent: "")
+            it.target = self
+            it.representedObject = m.key
+            it.state = m.key == cur ? .on : .off
+            modeMenu.addItem(it)
         }
         if let hist = menu.items.first(where: { $0.title == L("历史记录", "History") })?.submenu {
             hist.removeAllItems()
@@ -393,6 +406,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             recording = false
             recorderPanel = nil
         }
+        if window === modesWindow { modesWindow = nil }
         if window === lastPanel {
             lastPanel = nil
         }

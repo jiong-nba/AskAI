@@ -91,16 +91,22 @@ struct PromptMode {
                    + "execution order, and finish with pitfalls or side effects. Keep it under 160 words. Answer in English."),
     ]
 
-    static var all: [PromptMode] { builtin }
+    /// 内置模式加上用户在 defaults 里定义的模式。每次都重新读：设置窗里改完立即生效。
+    static func all(defaults: UserDefaults = .standard) -> [PromptMode] {
+        builtin + CustomModes.load(defaults: defaults).map {
+            PromptMode(key: $0.key, title: $0.title, system: $0.system)
+        }
+    }
 }
 
-func currentMode() -> PromptMode {
+func currentMode(in defaults: UserDefaults = .standard) -> PromptMode {
     let key = defaults.string(forKey: "mode") ?? "explain"
-    return PromptMode.all.first { $0.key == key } ?? PromptMode.all[0]
+    return PromptMode.all(defaults: defaults).first { $0.key == key } ?? PromptMode.builtin[0]
 }
 
 /// Older history entries stored the Chinese display title instead of the mode key.
-func historyMode(_ key: String) -> PromptMode {
+func historyMode(_ key: String, defaults: UserDefaults = .standard) -> PromptMode {
     let legacy = ["解释名词": "explain", "翻译": "translate", "总结要点": "summarize", "解释代码": "code"]
-    return PromptMode.all.first { $0.key == (legacy[key] ?? key) || $0.title == key } ?? PromptMode.all[0]
+    return PromptMode.all(defaults: defaults).first { $0.key == (legacy[key] ?? key) || $0.title == key }
+        ?? PromptMode.builtin[0]
 }

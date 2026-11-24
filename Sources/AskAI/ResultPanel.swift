@@ -35,6 +35,7 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
     private let save: Save
     private let pasteboard: NSPasteboard
     private let historyNotice: HistoryNotice   // 写历史时产生的提示从这里取；测试传自己的实例
+    private let defaults: UserDefaults         // 读自定义模式；和上面几个一样是为了测试可注入
     private let modePicker = NSPopUpButton()
     private let rangeLabel = NSTextField(labelWithString: "")
     private let fullButton = NSButton()
@@ -96,6 +97,7 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
         self.save = save
         self.pasteboard = pasteboard
         self.historyNotice = notice
+        self.defaults = defaults
         super.init(contentRect: NSRect(origin: .zero, size: Self.panelSize(visible: NSScreen.main?.visibleFrame, defaults: defaults)),
                    styleMask: [.titled, .closable, .nonactivatingPanel], backing: .buffered, defer: false)
         isReleasedWhenClosed = false
@@ -104,7 +106,7 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
         styleMask.insert(.resizable)   // 可拖拽调整；尺寸在 windowDidEndLiveResize 里记住
         minSize = NSSize(width: 420, height: 220)
         title = Self.title(for: source)
-        for mode in PromptMode.all {
+        for mode in PromptMode.all(defaults: defaults) {
             modePicker.addItem(withTitle: mode.title)
             modePicker.lastItem?.representedObject = mode.key
         }
@@ -213,13 +215,13 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
 
     @objc private func choosePanelMode() {
         guard let key = modePicker.selectedItem?.representedObject as? String,
-              let mode = PromptMode.all.first(where: { $0.key == key }) else { return }
+              let mode = PromptMode.all(defaults: defaults).first(where: { $0.key == key }) else { return }
         // 换模式是重新问开头那一个问题：接着之前的追问往下聊没有意义
         request(mode: mode, full: lastRequest?.full ?? false, question: lastRequest?.question)
     }
 
     @objc private func summarizeAll() {
-        if let mode = PromptMode.all.first(where: { $0.key == "summarize" }) { request(mode: mode, full: true) }
+        if let mode = PromptMode.builtin.first(where: { $0.key == "summarize" }) { request(mode: mode, full: true) }
     }
 
     /// question 为 nil：对原文提问，从头开始一段对话。否则是追问，之前的轮次作为上下文；
