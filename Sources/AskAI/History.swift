@@ -58,7 +58,8 @@ private func withHistoryLock<T>(_ operation: () throws -> T) throws -> T {
 }
 
 /// 给用户看的一次性提示，跨线程传递（历史在后台任务里写，在界面上读）。只保留最新一条。
-final class HistoryNotice {
+/// 可变状态都在锁里，所以可以标成 Sendable。
+final class HistoryNotice: @unchecked Sendable {
     static let shared = HistoryNotice()
     private let lock = NSLock()
     private var text: String?

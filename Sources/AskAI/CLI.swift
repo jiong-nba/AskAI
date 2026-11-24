@@ -34,6 +34,23 @@ func runCheck() -> Never {
     exit(0)
 }
 
+/// --stream 的输出状态：已经打印过多少个字符。回调是 @Sendable 闭包，不能捕获可变的局部变量，
+/// 所以计数放在一个带锁的对象里。
+private final class StreamPrinter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var printed = 0
+
+    func show(_ text: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        // 只打印新增的部分；按字符而不是字节计数，免得把一个多字节字符切成两半
+        let addition = text.dropFirst(printed)
+        printed += addition.count
+        print(addition, terminator: "")
+        fflush(stdout)   // 输出到管道时 stdout 是整块缓冲的，不冲掉就看不到「边到边」
+    }
+}
+
 // MARK: - 命令行问答：AskAI --ask "要解释的文字"
 // 用于端到端自测（真发一次请求 + 真实写历史），也可当作脚本工具使用。
 
@@ -46,18 +63,17 @@ func runAsk(arguments: [String]) -> Never {
     let question = arguments[i + 1]
     let mode = currentMode()
     // --stream：边到边输出。非流式请求要等整段回答生成完，超过 60 秒就超时，推理模型容易撞上
-    var printed = 0   // 已经打印过的字符数
-    let printer: ((String) async -> Void)? = arguments.contains("--stream") ? { text in
-        // 只打印新增的部分；按字符而不是字节计数，免得把一个多字节字符切成两半
-        let addition = text.dropFirst(printed)
-        printed += addition.count
-        print(addition, terminator: "")
-        fflush(stdout)   // 输出到管道时 stdout 是整块缓冲的，不冲掉就看不到「边到边」
-    } : nil
+    let printer = arguments.contains("--stream") ? StreamPrinter() : nil
+    let onDelta: StreamCallback?
+    if let printer {
+        onDelta = { text in printer.show(text) }
+    } else {
+        onDelta = nil
+    }
     Task {
         do {
             let input = QueryInput(preview: question)
-            let answer = try await askLLM(input, mode: mode, connection: .current(), onDelta: printer)
+            let answer = try await askLLM(input, mode: mode, connection: .current(), onDelta: onDelta)
             if printer != nil {
                 print()   // 流式输出没有结尾换行
             } else {
