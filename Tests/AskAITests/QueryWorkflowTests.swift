@@ -96,9 +96,7 @@ struct QueryWorkflowTests {
     }
 
     @Test func testDraftWithoutSavingAndApplyWithoutRestart() async throws {
-        let suite = "AskAI-test-" + UUID().uuidString
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = InMemoryDefaults()
         defaults.set("old-model", forKey: "model")
         defaults.set("old-key", forKey: "apiKey")
         var draft = ConnectionDraft(defaults: defaults)
@@ -126,9 +124,7 @@ struct QueryWorkflowTests {
     // An empty ASKAI_KEY counts as unset: it must not mask the saved key, and Settings must still
     // be able to accept one (the form shows the field whenever no environment key is provided).
     @Test func emptyEnvironmentKeyFallsBackToTheSavedKey() throws {
-        let suite = "AskAI-test-" + UUID().uuidString
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = InMemoryDefaults()
         defaults.set("saved-key", forKey: "apiKey")
         #expect(ConnectionSettings.current(defaults: defaults, environmentKey: "").apiKey == "saved-key")
         #expect(ConnectionSettings.current(defaults: defaults, environmentKey: "   ").apiKey == "saved-key")
@@ -218,9 +214,7 @@ struct QueryWorkflowTests {
     // OpenAI's reasoning models reject any temperature but the default, so it must be possible to
     // leave the parameter out; everyone else keeps 0.3 as before.
     @Test func temperatureIsSentUnlessConfiguredNegative() async throws {
-        let suite = "AskAI-test-" + UUID().uuidString
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = InMemoryDefaults()
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [ParamsEchoAPI.self]
         let session = URLSession(configuration: config)
@@ -251,9 +245,7 @@ struct QueryWorkflowTests {
     }
 
     @Test func copyTimeoutIsConfigurableWithinBounds() throws {
-        let suite = "AskAI-test-" + UUID().uuidString
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = InMemoryDefaults()
         #expect(copyTimeout(defaults: defaults) == .milliseconds(350))
         defaults.set(800, forKey: "copyTimeoutMs")
         #expect(copyTimeout(defaults: defaults) == .milliseconds(800))

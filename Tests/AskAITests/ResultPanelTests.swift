@@ -108,10 +108,7 @@ struct ResultPanelTests {
     }
 
     @Test @MainActor func panelSizeRemembersResizeAndClampsToScreen() throws {
-        let name = "AskAI.panelSize.tests"
-        let suite = try #require(UserDefaults(suiteName: name))
-        suite.removePersistentDomain(forName: name)
-        defer { suite.removePersistentDomain(forName: name) }
+        let suite = InMemoryDefaults()
         let wide = NSRect(x: 0, y: 0, width: 1440, height: 900)
         // 无记录 → 默认尺寸
         #expect(ResultPanel.panelSize(visible: wide, defaults: suite) == NSSize(width: 550, height: 310))
@@ -135,10 +132,7 @@ struct ResultPanelTests {
     // former and restoring it as the latter made the panel one title bar taller after every resize.
     @Test @MainActor func rememberedSizeIsTheContentSize() throws {
         _ = NSApplication.shared
-        let name = "AskAI.rememberSize.tests"
-        let suite = try #require(UserDefaults(suiteName: name))
-        suite.removePersistentDomain(forName: name)
-        defer { suite.removePersistentDomain(forName: name) }
+        let suite = InMemoryDefaults()
         let board = NSPasteboard.withUniqueName()
         defer { board.releaseGlobally() }
         let panel = ResultPanel(source: "idempotency", pasteboard: board) { _, _, _, _, _, _ in "x" }
@@ -152,19 +146,17 @@ struct ResultPanelTests {
     // A width left over from a wide external display must not push the panel's left edge off a smaller screen.
     @Test @MainActor func showNearMouseKeepsAnOversizedPanelOnScreen() throws {
         _ = NSApplication.shared
-        let standard = UserDefaults.standard
-        let oldWidth = standard.object(forKey: "panelWidth")
-        defer {
-            if let oldWidth { standard.set(oldWidth, forKey: "panelWidth") } else { standard.removeObject(forKey: "panelWidth") }
-        }
-        guard let visible = NSScreen.main?.visibleFrame else { return }
-        standard.set(5_000, forKey: "panelWidth")
+        guard let main = NSScreen.main else { return }
+        let visible = main.visibleFrame
+        let defaults = InMemoryDefaults()
+        defaults.set(5_000, forKey: "panelWidth")
         let board = NSPasteboard.withUniqueName()
         defer { board.releaseGlobally() }
-        let panel = ResultPanel(source: "idempotency", pasteboard: board) { _, _, _, _, _, _ in "x" }
+        let panel = ResultPanel(source: "idempotency", pasteboard: board, defaults: defaults) { _, _, _, _, _, _ in "x" }
         defer { panel.close() }
 
-        panel.showNearMouse()
+        // A pointer in the middle of the one screen there is; the real pointer may be on another display.
+        panel.showNearMouse(at: NSPoint(x: visible.midX, y: visible.midY), screens: [main])
 
         #expect(panel.frame.width <= visible.width)
         #expect(panel.frame.minX >= visible.minX - 0.5 && panel.frame.maxX <= visible.maxX + 0.5)
@@ -260,7 +252,7 @@ struct ResultPanelTests {
             Issue.record("A failed request must not be saved")
         }
         defer { panel.close() }
-        await panel.request(mode: historyMode("explain"))?.value
+        await panel.request(connection: fixtureConnection, mode: historyMode("explain"))?.value
 
         let shown = try answerView(of: panel).string
         #expect(shown.contains("thinking about it"))
@@ -280,7 +272,7 @@ struct ResultPanelTests {
             return "final answer"
         } save: { _, _, _, _, _ in }
         defer { panel.close() }
-        await panel.request(mode: historyMode("explain"))?.value
+        await panel.request(connection: fixtureConnection, mode: historyMode("explain"))?.value
 
         // 思考过程照常显示在正文上方，但不进入剪贴板
         #expect(try answerView(of: panel).string.contains("scratchpad"))
@@ -300,7 +292,7 @@ struct ResultPanelTests {
             return answer
         } save: { _, _, _, _, _ in }
         defer { panel.close() }
-        await panel.request(mode: historyMode("explain"))?.value
+        await panel.request(connection: fixtureConnection, mode: historyMode("explain"))?.value
 
         #expect(try answerView(of: panel).string == "bold code text")
         #expect(panel.performKeyEquivalent(with: try copyEvent(for: panel)))
@@ -326,7 +318,7 @@ struct ResultPanelTests {
             HistoryNotice.shared.post("history.json was moved aside")
         }
         defer { panel.close() }
-        await panel.request(mode: historyMode("explain"))?.value
+        await panel.request(connection: fixtureConnection, mode: historyMode("explain"))?.value
 
         #expect(try answerView(of: panel).string == "answer\n\n⚠️ history.json was moved aside")
         #expect(panel.performKeyEquivalent(with: try copyEvent(for: panel)))
