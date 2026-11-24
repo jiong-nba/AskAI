@@ -173,7 +173,9 @@ struct QueryWorkflowTests {
         // runs once before the copy is posted and then once per poll, instead of from a background
         // task: that keeps the test independent of scheduling order on slow machines.
         var checks = 0
-        let selection = try await copiedSelection(from: board, stillFocused: {
+        // A generous budget: the copy lands on the second poll, so the test ends right there, and a slow
+        // machine cannot run out of time before it gets there.
+        let selection = try await copiedSelection(from: board, timeout: .seconds(5), stillFocused: {
             checks += 1
             if checks == 3 {
                 board.clearContents()
