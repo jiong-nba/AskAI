@@ -46,9 +46,9 @@ struct FollowUpTests {
                                           sentCharacters: count, question: question))
         })
         defer { panel.close(); signalSave.finish() }
-        await panel.request(mode: explain)?.value
-        await panel.request(mode: explain, question: "and why?")?.value
-        await panel.request(mode: explain, question: "really?")?.value
+        await panel.request(connection: fixtureConnection, mode: explain)?.value
+        await panel.request(connection: fixtureConnection, mode: explain, question: "and why?")?.value
+        await panel.request(connection: fixtureConnection, mode: explain, question: "really?")?.value
 
         let first = ChatTurn(question: "idempotency", answer: "answer 1", message: "idempotency", isFollowUp: false)
         let second = ChatTurn(question: "and why?", answer: "answer 2", message: "and why?", isFollowUp: true)
@@ -82,7 +82,7 @@ struct FollowUpTests {
             return "complete answer"
         }, save: { _, _, _, _, _ in })
         defer { panel.close(); signalPartial.finish() }
-        panel.request(mode: historyMode("explain"))
+        panel.request(connection: fixtureConnection, mode: historyMode("explain"))
         var arrived = partialShown.makeAsyncIterator()
         _ = await arrived.next()
         #expect(try answerView(in: panel).string == "partial answer")
@@ -112,7 +112,7 @@ struct FollowUpTests {
             return "answer \(asked.count)"
         }, save: { _, _, _, _, _ in })
         defer { panel.close() }
-        await panel.request(mode: historyMode("explain"))?.value
+        await panel.request(connection: fixtureConnection, mode: historyMode("explain"))?.value
 
         let field = try questionField(in: panel)
         field.stringValue = "  what about X?  "
@@ -163,9 +163,9 @@ struct FollowUpTests {
             return "answer \(asked.count)"
         }, save: { _, _, _, _, _ in })
         defer { panel.close() }
-        await panel.request(mode: historyMode("explain"))?.value
-        await panel.request(mode: historyMode("explain"), question: "why?")?.value
-        await panel.request(mode: historyMode("translate"))?.value
+        await panel.request(connection: fixtureConnection, mode: historyMode("explain"))?.value
+        await panel.request(connection: fixtureConnection, mode: historyMode("explain"), question: "why?")?.value
+        await panel.request(connection: fixtureConnection, mode: historyMode("translate"))?.value
 
         #expect(asked == ["0 earlier turns: idempotency", "1 earlier turns: why?", "0 earlier turns: idempotency"])
         #expect(try answerView(in: panel).string == "answer 3")

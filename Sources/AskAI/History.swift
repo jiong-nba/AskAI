@@ -38,6 +38,8 @@ final class HistoryNotice {
     private let lock = NSLock()
     private var text: String?
 
+    init() {}
+
     func post(_ message: String) {
         lock.lock(); defer { lock.unlock() }
         text = message

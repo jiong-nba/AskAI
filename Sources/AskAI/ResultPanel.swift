@@ -34,6 +34,7 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
     private let send: Send
     private let save: Save
     private let pasteboard: NSPasteboard
+    private let historyNotice: HistoryNotice   // 写历史时产生的提示从这里取；测试传自己的实例
     private let modePicker = NSPopUpButton()
     private let rangeLabel = NSTextField(labelWithString: "")
     private let fullButton = NSButton()
@@ -84,7 +85,9 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
         return String(flat.prefix(40))
     }
 
-    init(source: String, pasteboard: NSPasteboard = .general,
+    /// defaults 只用来读记住的窗口尺寸；测试传内存实现，免得碰进程的真实域。
+    init(source: String, pasteboard: NSPasteboard = .general, defaults: UserDefaults = .standard,
+         notice: HistoryNotice = .shared,
          send: @escaping Send = { try await askLLM($0, mode: $1, connection: $2, context: $3, onDelta: $4, onReasoning: $5) },
          save: @escaping Save = appendHistory) {
         self.source = source
@@ -92,7 +95,8 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
         self.send = send
         self.save = save
         self.pasteboard = pasteboard
-        super.init(contentRect: NSRect(origin: .zero, size: Self.panelSize(visible: NSScreen.main?.visibleFrame)),
+        self.historyNotice = notice
+        super.init(contentRect: NSRect(origin: .zero, size: Self.panelSize(visible: NSScreen.main?.visibleFrame, defaults: defaults)),
                    styleMask: [.titled, .closable, .nonactivatingPanel], backing: .buffered, defer: false)
         isReleasedWhenClosed = false
         level = .floating
@@ -221,8 +225,8 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
     /// question 为 nil：对原文提问，从头开始一段对话。否则是追问，之前的轮次作为上下文；
     /// 唯一的例外是回看带追问的历史条目时换模式重问——那时没有前文，把原文和问题合成一条消息。
     @discardableResult
-    func request(mode: PromptMode, full: Bool = false, question: String? = nil,
-                 connection: ConnectionSettings = .current()) -> Task<Void, Never>? {
+    func request(connection: ConnectionSettings = .current(), mode: PromptMode, full: Bool = false,
+                 question: String? = nil) -> Task<Void, Never>? {
         cancelRequest()
         failure = nil
         let input: QueryInput
@@ -277,14 +281,14 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
                 pendingQuestion = nil
                 render()
                 // Accept completion on the main actor before handing persistence to the file lock.
-                let (save, source) = (self.save, self.source)
+                let (save, source, notices) = (self.save, self.source, historyNotice)
                 let savedQuestion = question
                 await Task.detached {
                     do { try save(mode.key, source, answer, savedQuestion == nil ? input.sent : nil, savedQuestion) }
                     catch { NSLog("AskAI: failed to save history: \(error.localizedDescription)") }
                 }.value
                 // 写历史时发现 history.json 读不出来并已挪开重建：在正文下方说明
-                guard requestID == id, let message = HistoryNotice.shared.take() else { return }
+                guard requestID == id, let message = notices.take() else { return }
                 notice = message
                 render()
             } catch {
@@ -401,10 +405,10 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
         return origin
     }
 
-    /// 划词的结果应靠近触发点弹出，而不是每次都回到屏幕正中
-    func showNearMouse() {
-        let mouse = NSEvent.mouseLocation
-        let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main
+    /// 划词的结果应靠近触发点弹出，而不是每次都回到屏幕正中。
+    /// 鼠标位置和屏幕列表可以传入，测试不必依赖真实的鼠标在哪块屏上。
+    func showNearMouse(at mouse: NSPoint = NSEvent.mouseLocation, screens: [NSScreen] = NSScreen.screens) {
+        let screen = screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main
         guard let visible = screen?.visibleFrame else { center(); return }
         // 面板是按主屏尺寸创建的；鼠标在更小的那块屏上时，先把它收进那块屏的可见区
         setContentSize(Self.panelSize(visible: visible))

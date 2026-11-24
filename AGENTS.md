@@ -89,6 +89,10 @@ Run `bash Tests/test_packaging.sh` after changing the packager. It checks signin
   and settings UI). `main.swift` is only the entry point. Give a new responsibility its own file rather than
   letting any file grow past ~900 lines
 - Comments explain *why*, not *what*
+- Tests never touch real preference domains. Use `InMemoryDefaults` from `Tests/AskAITests/TestSupport.swift`
+  instead of `UserDefaults(suiteName:)` — even a removed suite leaves an empty plist in `~/Library/Preferences` —
+  and pass `connection:` / `defaults:` into panels instead of reading `.standard`, which is the test runner's
+  real domain (`swiftpm-testing-helper`) and keeps whatever a test writes
 
 ## Shell conventions
 

@@ -23,12 +23,6 @@ private final class HeadersAPI: URLProtocol {
 }
 
 struct SettingsTests {
-    private func defaults() throws -> (UserDefaults, String) {
-        let name = "AskAI.settings.tests-" + UUID().uuidString
-        let suite = try #require(UserDefaults(suiteName: name))
-        return (suite, name)
-    }
-
     @Test func presetsMatchTheirOwnEndpointAndNothingElse() {
         #expect(ProviderPreset.matching(endpoint: "https://api.deepseek.com/chat/completions")?.name == "DeepSeek")
         #expect(ProviderPreset.matching(endpoint: "  http://localhost:11434/v1/chat/completions ")?.name == "Ollama (local)")
@@ -65,8 +59,7 @@ struct SettingsTests {
     }
 
     @Test func draftAcceptsALocalEndpointWithoutAKey() throws {
-        let (defaults, name) = try defaults()
-        defer { defaults.removePersistentDomain(forName: name) }
+        let defaults = InMemoryDefaults()
         var draft = ConnectionDraft(defaults: defaults)
         draft.savedKey = ""
         draft.model = "llama"
@@ -77,8 +70,7 @@ struct SettingsTests {
     }
 
     @Test func historyIsOffOnlyWhenSwitchedOff() throws {
-        let (defaults, name) = try defaults()
-        defer { defaults.removePersistentDomain(forName: name) }
+        let defaults = InMemoryDefaults()
         #expect(historySavingEnabled(defaults: defaults))
         defaults.set(false, forKey: "saveHistory")
         #expect(!historySavingEnabled(defaults: defaults))
@@ -88,8 +80,7 @@ struct SettingsTests {
 
     // The answer language follows the UI unless it is set on its own; each prompt asks for its language.
     @Test func answerLanguageFollowsTheUIUnlessSet() throws {
-        let (defaults, name) = try defaults()
-        defer { defaults.removePersistentDomain(forName: name) }
+        let defaults = InMemoryDefaults()
         #expect(AnswerLanguage.stored(defaults: defaults) == nil)
         #expect(AnswerLanguage.current(defaults: defaults) == (appIsChinese ? .chinese : .english))
         defaults.set("EN", forKey: "answerLanguage")
@@ -107,8 +98,7 @@ struct SettingsTests {
     }
 
     @Test func settingsRoundTripThroughTheDraft() throws {
-        let (defaults, name) = try defaults()
-        defer { defaults.removePersistentDomain(forName: name) }
+        let defaults = InMemoryDefaults()
         var draft = ConnectionDraft(defaults: defaults)
         #expect(draft.answerLanguage == "" && draft.savesHistory)
         draft.savedKey = "fixture-key"

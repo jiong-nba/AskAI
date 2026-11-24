@@ -51,10 +51,7 @@ struct HotKeyTests {
     }
 
     @Test @MainActor func configuredHotKeyFallsBackToTheDefault() throws {
-        let name = "AskAI.hotkey.tests"
-        let suite = try #require(UserDefaults(suiteName: name))
-        suite.removePersistentDomain(forName: name)
-        defer { suite.removePersistentDomain(forName: name) }
+        let suite = InMemoryDefaults()
         #expect(configuredHotKey(defaults: suite) == (defaultHotKeyCode, NSEvent.ModifierFlags(rawValue: UInt(defaultHotKeyMods))))
         suite.set(Int(kVK_ANSI_J), forKey: "hotkeyKey")
         suite.set(Int(NSEvent.ModifierFlags.option.rawValue), forKey: "hotkeyMods")
