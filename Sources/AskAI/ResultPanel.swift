@@ -81,10 +81,17 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
         defaults.set(Int(size.height), forKey: "panelHeight")
     }
 
-    /// 窗口标题：原文前 40 字，换行换成空格（OCR 出来的多行文本会把标题撑成好几行）
+    /// 窗口标题最大长度（不含省略号）：兼顾中英文宽度，避免顶到标题栏边缘或生硬断在半个词上
+    static let titleLimit = 28
+
+    /// 窗口标题：原文摘要（压平换行、去首尾空白），超出上限时截断并加省略号
     static func title(for source: String) -> String {
-        let flat = source.replacingOccurrences(of: "\r\n", with: " ").replacingOccurrences(of: "\n", with: " ")
-        return String(flat.prefix(40))
+        let flat = source
+            .replacingOccurrences(of: "\r\n", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard flat.count > titleLimit else { return flat }
+        return String(flat.prefix(titleLimit)) + "…"
     }
 
     /// defaults 只用来读记住的窗口尺寸；测试传内存实现，免得碰进程的真实域。
@@ -105,6 +112,7 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
         level = .floating
         becomesKeyOnlyIfNeeded = false
         styleMask.insert(.resizable)   // 可拖拽调整；尺寸在 windowDidEndLiveResize 里记住
+        standardWindowButton(.zoomButton)?.isEnabled = false   // 浮窗不需要全屏/最大化按钮
         minSize = NSSize(width: 420, height: 220)
         title = Self.title(for: source)
         for mode in PromptMode.all(defaults: defaults) {
@@ -123,6 +131,8 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
         let spacer = NSView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         let header = NSStackView(views: [modePicker, rangeLabel, spacer, fullButton])
+        header.alignment = .centerY
+        header.spacing = 8
 
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
@@ -163,8 +173,8 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
         NSLayoutConstraint.activate([
             header.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 10),
             header.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -10),
-            header.topAnchor.constraint(equalTo: view.topAnchor, constant: 6),
-            scroll.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 4),
+            header.topAnchor.constraint(equalTo: view.topAnchor, constant: 8),
+            scroll.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 8),
             scroll.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             scroll.bottomAnchor.constraint(equalTo: prompt.topAnchor, constant: -4),
@@ -251,7 +261,7 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
         let id = requestID
         lastRequest = (mode, full, question)
         pendingQuestion = question
-        title = "\(mode.title) · \(Self.title(for: source))"
+        title = Self.title(for: source)
         if question == nil {
             updateControls(mode: mode, sent: input.sent, limit: connection.summaryLimit)
         } else {

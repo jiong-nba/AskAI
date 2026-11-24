@@ -162,9 +162,27 @@ struct ResultPanelTests {
         #expect(panel.frame.minY >= visible.minY - 0.5 && panel.frame.maxY <= visible.maxY + 0.5)
     }
 
-    @Test @MainActor func titleFlattensLineBreaks() {
-        #expect(ResultPanel.title(for: "line one\nline two\r\nline three") == "line one line two line three")
-        #expect(ResultPanel.title(for: String(repeating: "字", count: 60)).count == 40)
+    @Test @MainActor func titleFlattensLineBreaksAndEllipsizesLongSource() {
+        #expect(ResultPanel.title(for: "  line one\nline two\r\nline three  ") == "line one line two line three")
+        let truncated = ResultPanel.title(for: String(repeating: "字", count: 60))
+        #expect(truncated == String(repeating: "字", count: ResultPanel.titleLimit) + "…")
+    }
+
+    // The mode picker already shows the active mode right below the title bar, so the title bar
+    // should not repeat it; and a floating panel disables the green zoom button.
+    @Test @MainActor func panelTitleDoesNotDuplicateModeAndDisablesZoomButton() async {
+        _ = NSApplication.shared
+        let board = isolatedPasteboard()
+        defer { board.releaseGlobally() }
+        let panel = ResultPanel(source: "idempotency", pasteboard: board, defaults: InMemoryDefaults(),
+                                send: { _, _, _, _, _, _ in "answer" }, save: { _, _, _, _, _ in })
+        defer { panel.close() }
+        let mode = historyMode("explain")
+        await panel.request(connection: fixtureConnection, mode: mode)?.value
+
+        #expect(panel.title == "idempotency")
+        #expect(!panel.title.contains(mode.title))
+        #expect(panel.standardWindowButton(.zoomButton)?.isEnabled == false)
     }
 
     // Caps Lock and Fn are state, not part of the shortcut: ⌘C must still copy while they are on.
