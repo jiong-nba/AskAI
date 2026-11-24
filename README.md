@@ -30,6 +30,7 @@ Native Swift menu-bar app with no Dock icon.
 - **Custom hotkey** — record it right in the menu; the recorder tells you when another app already uses the combination
 - **Any OpenAI-compatible endpoint** — DeepSeek, OpenAI, Ollama, etc. Settings offers the common addresses as presets, and endpoints on `localhost` need no API key
 - **Answer language of its own** — answers follow the UI language by default; choose Chinese or English separately in Settings
+- **Custom modes** — add your own modes (a name and a system prompt) via 🤖 → "Manage Modes…"; they appear in the Mode menu and in the panel's mode picker
 
 ## Quick start
 
@@ -64,6 +65,7 @@ Settings and the CLI share the same `defaults` preferences. Test Connection send
 | Endpoint | `defaults write com.dsh.AskAI baseURL "https://api.openai.com/v1/chat/completions"` (must be a full `https://` URL; an invalid value falls back to the default endpoint and `--check` prints a warning) |
 | Hotkey | Menu 🤖 → "Set Hotkey…" and press the combination |
 | Mode | Menu 🤖 → "Mode" |
+| Custom modes | Menu 🤖 → "Manage Modes…" (kept in `defaults` as JSON under `customModes`) |
 | History | Edit `~/Library/Application Support/AskAI/history.json` |
 | UI language | `defaults write com.dsh.AskAI lang en` (or `zh`; default follows macOS) |
 | Temperature | `defaults write com.dsh.AskAI temperature 0.3` (0–2; `-1` = do not send it and use the provider default. OpenAI's reasoning models such as the o-series and GPT-5 reject any other value, so use `-1` for them) |
