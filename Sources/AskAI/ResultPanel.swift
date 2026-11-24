@@ -47,6 +47,8 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
     private let speaker = AVSpeechSynthesizer()
     private var sentCharacters = 0
     private var running: Task<Void, Never>?
+    private var renderScheduled: Task<Void, Never>?
+    private var lastStreamRender: ContinuousClock.Instant?
     private var requestID = UUID()
     private var turns: [ChatTurn] = []                 // 这段对话里已完成的轮次，追问时作为上下文
     private var awaiting = false                       // 有请求在途（哪怕还没收到第一个字）
@@ -272,6 +274,7 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
         streaming = ""
         latestReasoning = ""
         notice = ""
+        lastStreamRender = nil
         let context = Array(turns.suffix(Self.contextLimit))
         render()
         running = Task {
@@ -280,11 +283,11 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
                                             { [weak self] text in
                     guard let self, self.requestID == id else { return }
                     self.streaming = text
-                    self.render()
+                    self.scheduleStreamRender()
                 }, { [weak self] text in
                     guard let self, self.requestID == id else { return }
                     self.latestReasoning = text
-                    self.render()
+                    self.scheduleStreamRender()
                 })
                 guard requestID == id else { return }
                 turns.append(ChatTurn(question: question ?? input.message, answer: answer,
@@ -320,7 +323,32 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
         requestID = UUID()
         running?.cancel()
         running = nil
+        renderScheduled?.cancel()
+        renderScheduled = nil
+        lastStreamRender = nil
         if speaker.isSpeaking { speaker.stopSpeaking(at: .immediate) }
+    }
+
+    /// 流式输出合帧渲染（约 30fps）：高速模型每秒推送几十上百个分片，逐片重解析整段 Markdown
+    /// 会把主线程打满；首片立即画，结束/停止/出错由 render() 直接刷新并取消挂起任务。
+    private static let streamRenderInterval: Duration = .milliseconds(33)
+
+    private func scheduleStreamRender() {
+        let now = ContinuousClock.now
+        if let last = lastStreamRender, now - last < Self.streamRenderInterval {
+            guard renderScheduled == nil else { return }
+            let id = requestID
+            renderScheduled = Task { [weak self] in
+                try? await Task.sleep(for: Self.streamRenderInterval)
+                guard let self, !Task.isCancelled, self.requestID == id else { return }
+                self.renderScheduled = nil
+                self.lastStreamRender = .now
+                self.render()
+            }
+            return
+        }
+        lastStreamRender = now
+        render()
     }
 
     /// 停止生成：已经收到的正文留在屏幕上，可以重试。
@@ -357,6 +385,8 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
     /// 把当前对话画到正文里，思考过程拼在最上方、状态行拼在最下方（都只在屏幕上，不进复制与朗读）。
     /// 用户停在底部（或还没滚过）时跟随新内容滚动；翻上去看前文时不再强行拉回。
     private func render(status: String? = nil) {
+        renderScheduled?.cancel()
+        renderScheduled = nil
         if let status { failure = status }
         answerText = Self.transcript(turns: turns, pending: pendingTurn, status: nil)
         var shown = Self.transcript(turns: turns, pending: pendingTurn, status: failure)

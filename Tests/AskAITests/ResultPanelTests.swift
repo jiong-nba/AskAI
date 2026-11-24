@@ -185,6 +185,28 @@ struct ResultPanelTests {
         #expect(panel.standardWindowButton(.zoomButton)?.isEnabled == false)
     }
 
+    // Rapid streaming chunks coalesce instead of re-parsing Markdown per token, while the final
+    // answer still renders immediately on completion with no trailing stale overwrite.
+    @Test @MainActor func rapidStreamingChunksStillRenderFinalAnswerImmediately() async throws {
+        _ = NSApplication.shared
+        let board = isolatedPasteboard()
+        defer { board.releaseGlobally() }
+        let panel = ResultPanel(source: "idempotency", pasteboard: board, defaults: InMemoryDefaults(),
+                                send: { _, _, _, _, delta, _ in
+            var acc = ""
+            for i in 1...50 {
+                acc += "\(i) "
+                await delta?(acc)
+            }
+            return acc + "done"
+        }, save: { _, _, _, _, _ in })
+        defer { panel.close() }
+        await panel.request(connection: fixtureConnection, mode: historyMode("explain"))?.value
+
+        let expected = (1...50).map { "\($0) " }.joined() + "done"
+        #expect(try answerView(of: panel).string == expected)
+    }
+
     // Caps Lock and Fn are state, not part of the shortcut: ⌘C must still copy while they are on.
     @Test @MainActor func commandCStillCopiesWithCapsLockOn() throws {
         _ = NSApplication.shared

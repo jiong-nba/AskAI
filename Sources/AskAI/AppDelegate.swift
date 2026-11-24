@@ -241,9 +241,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     private var capturingSelection = false
+    private var capturingScreen = false
 
     private func ask() {
-        guard !recording, !capturingSelection else { return }
+        guard !recording, !capturingSelection, !capturingScreen else { return }
         guard ConnectionSettings.current().isConfigured else { openSettings(); return }
         capturingSelection = true
         Task { @MainActor in
@@ -258,18 +259,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         }
     }
 
-    /// 截图选区 → OCR → 解释
+    /// 截图选区 → OCR → 解释。screencapture 与 Vision OCR 都在后台跑，避免框选期间主线程卡住。
     @objc private func askFromScreen() {
+        guard !capturingScreen else { return }
         guard ConnectionSettings.current().isConfigured else { openSettings(); return }
-        guard let shot = captureRegion() else { return }   // 取消截图则静默返回
-        guard let text = ocrText(from: shot) else {
-            let alert = NSAlert()
-            alert.messageText = L("没有识别到文字", "No text found")
-            alert.informativeText = L("选区内未检测到可识别的文本，请重新框选。", "No recognizable text in that region. Try selecting it again.")
-            alert.runModal()
-            return
+        capturingScreen = true
+        Task { @MainActor in
+            defer { capturingScreen = false }
+            let outcome: (shot: Bool, text: String?) = await Task.detached {
+                guard let shot = captureRegion() else { return (false, nil) }
+                return (true, ocrText(from: shot))
+            }.value
+            guard outcome.shot else { return }   // 取消截图则静默返回
+            guard let text = outcome.text else {
+                let alert = NSAlert()
+                alert.messageText = L("没有识别到文字", "No text found")
+                alert.informativeText = L("选区内未检测到可识别的文本，请重新框选。", "No recognizable text in that region. Try selecting it again.")
+                NSApp.activate(ignoringOtherApps: true)
+                alert.runModal()
+                return
+            }
+            runQuery(source: text)
         }
-        runQuery(source: text)
     }
 
     private func runQuery(source: String) {
