@@ -358,9 +358,64 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
         sendButton.isEnabled = !awaiting
     }
 
+    /// 回答的富文本：围栏代码块用等宽字体和浅底色，其余部分按行内 Markdown 渲染。
+    static func renderedAnswer(_ text: String, baseFont: NSFont) -> NSAttributedString {
+        let result = NSMutableAttributedString()
+        for segment in splitCodeBlocks(text) {
+            if segment.isCode {
+                result.append(codeBlock(segment.text, baseFont: baseFont))
+            } else {
+                result.append(renderedInline(segment.text, baseFont: baseFont))
+            }
+        }
+        return result
+    }
+
+    /// 把回答切成「普通段落」和「围栏代码块」。围栏行本身不显示，它占的那一处换行保留，
+    /// 所以其余各行的位置不变。流式输出时代码块常常还没闭合：从开头的围栏到文末都算代码；
+    /// 每次都按全文重新切分，闭合之后自然恢复。
+    static func splitCodeBlocks(_ text: String) -> [(text: String, isCode: Bool)] {
+        guard !text.isEmpty else { return [] }
+        var segments: [(text: String, isCode: Bool)] = []
+        var lines: [String] = []
+        var inCode = false
+        func close() {
+            guard !lines.isEmpty else { return }
+            segments.append((lines.joined(separator: "\n"), inCode))
+            lines = []
+        }
+        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+                lines.append("")   // keep the line break the fence occupied
+                close()
+                inCode.toggle()
+            } else {
+                lines.append(String(line))
+            }
+        }
+        close()
+        return segments
+    }
+
+    /// 代码块：等宽字体、原样保留，不做 Markdown 解析（代码里的 * 和 _ 不该被当成语法）。
+    /// 底色不画在结尾的换行上，免得代码块下面多出一条空的高亮带。
+    private static func codeBlock(_ text: String, baseFont: NSFont) -> NSAttributedString {
+        let font = NSFont.monospacedSystemFont(ofSize: baseFont.pointSize, weight: .regular)
+        let highlighted: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.textColor,
+                                                          .backgroundColor: NSColor.unemphasizedSelectedContentBackgroundColor]
+        let result = NSMutableAttributedString()
+        if text.hasSuffix("\n") {
+            result.append(NSAttributedString(string: String(text.dropLast()), attributes: highlighted))
+            result.append(NSAttributedString(string: "\n", attributes: [.font: font, .foregroundColor: NSColor.textColor]))
+        } else {
+            result.append(NSAttributedString(string: text, attributes: highlighted))
+        }
+        return result
+    }
+
     /// 行内 Markdown 渲染：粗体 / 斜体 / 行内代码 / 链接，保留原有换行——
     /// 聊天式回答不适合块级语法的段落重排；解析失败回落纯文本。
-    static func renderedAnswer(_ text: String, baseFont: NSFont) -> NSAttributedString {
+    static func renderedInline(_ text: String, baseFont: NSFont) -> NSAttributedString {
         let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
         guard var parsed = try? AttributedString(markdown: text, options: options) else {
             return NSAttributedString(string: text,
@@ -389,10 +444,14 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
         return NSAttributedString(parsed)
     }
 
-    /// 朗读用的纯文本：去掉行内 Markdown 符号（链接只保留文字）；解析失败就按原文朗读。
+    /// 朗读用的纯文本：围栏代码块的围栏行整行跳过，其余去掉行内 Markdown 符号（链接只保留文字）；
+    /// 解析失败就按原文朗读。
     static func speechText(_ markdown: String) -> String {
+        let spoken = markdown.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("```") }
+            .joined(separator: "\n")
         let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        guard let parsed = try? AttributedString(markdown: markdown, options: options) else { return markdown }
+        guard let parsed = try? AttributedString(markdown: spoken, options: options) else { return spoken }
         return String(parsed.characters)
     }
 
