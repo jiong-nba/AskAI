@@ -106,6 +106,12 @@ open AskAI.app
 
 回复使用的模式取自当前选中模式（`defaults write com.dsh.AskAI mode translate` 可切换）。
 
+加 `--stream` 则边到边输出。非流式请求最多等 60 秒拿整段回答，推理模型可能超过；`--stream` 没有这个限制：
+
+```bash
+./AskAI.app/Contents/MacOS/AskAI --ask "throttling" --stream
+```
+
 ## 签名与授权（为什么授权总失效）
 
 macOS 按**代码签名**识别 App。ad-hoc 签名每次重建都会变，辅助功能授权随之静默失效——

@@ -25,6 +25,16 @@ class FixtureAPI(BaseHTTPRequestHandler):
         question = request["messages"][-1]["content"]
         if self.server.barrier:
             self.server.barrier.wait(timeout=10)
+        if self.server.status == 200 and request.get("stream"):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.end_headers()
+            for piece in (question[:2], question[2:5], question[5:]):
+                event = json.dumps({"choices": [{"delta": {"content": piece}}]}).encode()
+                self.wfile.write(b"data: " + event + b"\n\n")
+            self.wfile.write(b"data: [DONE]\n\n")
+            self.wfile.flush()
+            return
         if self.server.status == 200:
             body = {"choices": [{"message": {"content": question}}]}
         else:
@@ -106,6 +116,21 @@ class CLITests(unittest.TestCase):
         self.assertIn("history file : saving is disabled", result.stdout)
         # Existing entries are left alone and nothing is added.
         self.assertEqual([entry["source"] for entry in json.loads(self.history.read_text())], ["old"])
+
+    def test_stream_prints_the_answer_once(self):
+        # Three SSE pieces must come out as the answer, exactly once, and be saved once.
+        result = self.cli("--ask", "streamed question", "--stream")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines()[0], "streamed question")
+        self.assertIn("json round-trip : ok", result.stdout)
+        self.assertEqual([entry["source"] for entry in json.loads(self.history.read_text())],
+                         ["streamed question"])
+
+    def test_stream_without_a_question_is_a_usage_error(self):
+        result = self.cli("--ask", "--stream")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("--ask", result.stderr)
 
     def test_concurrent_history(self):
         old = [dict(time=i, mode="explain", source=f"old-{i}", answer="saved")

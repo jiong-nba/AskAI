@@ -38,17 +38,31 @@ func runCheck() -> Never {
 // 用于端到端自测（真发一次请求 + 真实写历史），也可当作脚本工具使用。
 
 func runAsk(arguments: [String]) -> Never {
-    guard let i = arguments.firstIndex(of: "--ask"), i + 1 < arguments.count else {
-        fputs(L("用法：AskAI --ask <文字>\n", "Usage: AskAI --ask <text>\n"), stderr)
+    guard let i = arguments.firstIndex(of: "--ask"), i + 1 < arguments.count,
+          !arguments[i + 1].hasPrefix("-") else {
+        fputs(L("用法：AskAI --ask <文字> [--stream]\n", "Usage: AskAI --ask <text> [--stream]\n"), stderr)
         exit(EXIT_FAILURE)
     }
     let question = arguments[i + 1]
     let mode = currentMode()
+    // --stream：边到边输出。非流式请求要等整段回答生成完，超过 60 秒就超时，推理模型容易撞上
+    var printed = 0   // 已经打印过的字符数
+    let printer: ((String) async -> Void)? = arguments.contains("--stream") ? { text in
+        // 只打印新增的部分；按字符而不是字节计数，免得把一个多字节字符切成两半
+        let addition = text.dropFirst(printed)
+        printed += addition.count
+        print(addition, terminator: "")
+        fflush(stdout)   // 输出到管道时 stdout 是整块缓冲的，不冲掉就看不到「边到边」
+    } : nil
     Task {
         do {
             let input = QueryInput(preview: question)
-            let answer = try await askLLM(input, mode: mode, connection: .current())
-            print(answer)
+            let answer = try await askLLM(input, mode: mode, connection: .current(), onDelta: printer)
+            if printer != nil {
+                print()   // 流式输出没有结尾换行
+            } else {
+                print(answer)
+            }
             do {
                 try appendHistory(mode: mode.key, source: question, answer: answer)
             } catch {
