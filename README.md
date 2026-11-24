@@ -128,6 +128,13 @@ json round-trip : ok
 
 The reply follows whichever mode is currently selected (`defaults write com.dsh.AskAI mode translate` to change it).
 
+Add `--stream` to print the answer as it arrives. A non-streaming request waits at most 60 seconds for the whole
+answer, which reasoning models can exceed; `--stream` has no such limit:
+
+```bash
+./AskAI.app/Contents/MacOS/AskAI --ask "throttling" --stream
+```
+
 ## Signing & why your grant keeps resetting
 
 macOS identifies an app by its **code signature**. An ad-hoc signed app gets a new identity on every
