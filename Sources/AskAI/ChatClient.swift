@@ -10,9 +10,13 @@ struct ChatTurn: Equatable {
     var isFollowUp: Bool     // 是否追问：显示时先列出问题
 }
 
+/// 流式回答的回调。它们更新界面，所以固定在主线程上执行；@Sendable 是因为要从非隔离的
+/// 网络代码里调用——调用处会先切到主线程。写成类型而不是靠推断，隔离约定才算说清楚。
+typealias StreamCallback = @MainActor @Sendable (String) async -> Void
+
 func askLLM(_ input: QueryInput, mode: PromptMode, connection: ConnectionSettings, context: [ChatTurn] = [],
-            session: URLSession = .shared, onDelta: ((String) async -> Void)? = nil,
-            onReasoning: ((String) async -> Void)? = nil) async throws -> String {
+            session: URLSession = .shared, onDelta: StreamCallback? = nil,
+            onReasoning: StreamCallback? = nil) async throws -> String {
     guard connection.isConfigured else {
         throw AskError(L("未配置 API Key。请打开菜单栏设置或指定 ASKAI_KEY。",
                          "No API key configured. Open Settings in the menu bar or set ASKAI_KEY."))
@@ -84,8 +88,8 @@ func askLLM(_ input: QueryInput, mode: PromptMode, connection: ConnectionSetting
 }
 
 func readChatStream<Lines: AsyncSequence>(_ lines: Lines,
-                                          onDelta: (String) async -> Void,
-                                          onReasoning: ((String) async -> Void)? = nil) async throws -> String
+                                          onDelta: StreamCallback,
+                                          onReasoning: StreamCallback? = nil) async throws -> String
 where Lines.Element == String {
     var full = ""
     var reasoning = ""

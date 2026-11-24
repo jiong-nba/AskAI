@@ -79,6 +79,13 @@ behaviour.
 
 Run `bash Tests/test_packaging.sh` after changing the packager. It checks signing and replacement in a temporary directory.
 
+`swift build -Xswiftc -strict-concurrency=complete` must report nothing that is an error in the Swift 6 language
+mode; CI fails otherwise. The package builds with zero diagnostics under it today. Three things trip it:
+closures that cross into nonisolated code must be `@Sendable` (streaming callbacks are `StreamCallback`, i.e.
+`@MainActor @Sendable`, because they touch the panel); read `AttributedString` attributes with
+`run[Attribute.self]`, since the dot accessors go through key paths; and reference globals imported from C
+(`kAXTrustedCheckOptionPrompt`) only behind `@preconcurrency import`.
+
 ## Code conventions
 
 - Swift 5.9+, macOS 13+ target, no force-unwraps except for compile-time literals (URL, key codes)

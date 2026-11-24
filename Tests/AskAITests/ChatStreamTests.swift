@@ -44,12 +44,12 @@ struct ChatStreamTests {
         let error = #"data: {"error":{"message":"upstream unavailable"}}"#
         let length = #"data: {"choices":[{"finish_reason":"length"}]}"#
         for ending in [[], [error, "data: [DONE]"], [length], ["data: {"]] {
-            var updates: [String] = []
+            let updates = Recorder<String>()
             do {
                 _ = try await readChatStream(lines([content] + ending)) { updates.append($0) }
                 Issue.record("Interrupted stream reported success with ending \(ending)")
             } catch {
-                #expect(updates == ["hello"])
+                #expect(updates.values == ["hello"])
             }
         }
     }
@@ -69,8 +69,8 @@ struct ChatStreamTests {
     @Test func reasoningStreamsSeparatelyFromContent() async throws {
         let think1 = #"data: {"choices":[{"delta":{"reasoning_content":"先想"}}]}"#
         let think2 = #"data: {"choices":[{"delta":{"reasoning_content":"想完"}}]}"#
-        var reasoning: [String] = []
-        var updates: [String] = []
+        let reasoning = Recorder<String>()
+        let updates = Recorder<String>()
         let answer = try await readChatStream(lines([think1, think2, content, stop])) {
             updates.append($0)
         } onReasoning: {
@@ -78,7 +78,7 @@ struct ChatStreamTests {
         }
         // 返回值只有正文；思考过程经 onReasoning 增量推送，不混入 onDelta
         #expect(answer == "hello")
-        #expect(reasoning == ["先想", "先想想完"])
-        #expect(updates == ["hello"])
+        #expect(reasoning.values == ["先想", "先想想完"])
+        #expect(updates.values == ["hello"])
     }
 }

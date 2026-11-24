@@ -23,8 +23,9 @@ struct QueryInput {
 
 @MainActor
 final class ResultPanel: NSPanel, NSTextFieldDelegate {
-    typealias Send = (QueryInput, PromptMode, ConnectionSettings, [ChatTurn], ((String) async -> Void)?, ((String) async -> Void)?) async throws -> String
-    typealias Save = (String, String, String, Int?, String?) throws -> Void
+    typealias Send = (QueryInput, PromptMode, ConnectionSettings, [ChatTurn], StreamCallback?, StreamCallback?) async throws -> String
+    /// 保存历史要等文件锁，放在后台任务里执行，所以必须是 Sendable 闭包。
+    typealias Save = @Sendable (String, String, String, Int?, String?) throws -> Void
 
     /// 追问时最多带上的最近轮数：请求体不随对话无限增长
     static let contextLimit = 8
@@ -90,7 +91,7 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
     init(source: String, pasteboard: NSPasteboard = .general, defaults: UserDefaults = .standard,
          notice: HistoryNotice = .shared,
          send: @escaping Send = { try await askLLM($0, mode: $1, connection: $2, context: $3, onDelta: $4, onReasoning: $5) },
-         save: @escaping Save = appendHistory) {
+         save: @escaping Save = { try appendHistory(mode: $0, source: $1, answer: $2, sentCharacters: $3, question: $4) }) {
         self.source = source
         self.total = source.count
         self.send = send
@@ -326,7 +327,7 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
 
     /// 浮窗正文的 Markdown 原文：已完成的轮次加上在途的那一轮，用分隔线隔开；
     /// 追问的轮次先列出问题。status 是最后一轮下方的一行说明（出错、被停止）。
-    static func transcript(turns: [ChatTurn], pending: ChatTurn?, status: String?) -> String {
+    nonisolated static func transcript(turns: [ChatTurn], pending: ChatTurn?, status: String?) -> String {
         var parts = turns.map { body(of: $0) }
         if let pending { parts.append(body(of: pending, whileEmpty: L("思考中…", "Thinking…"))) }
         if let status {
@@ -335,7 +336,7 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
         return parts.joined(separator: "\n\n————\n\n")
     }
 
-    private static func body(of turn: ChatTurn, whileEmpty: String = "") -> String {
+    private nonisolated static func body(of turn: ChatTurn, whileEmpty: String = "") -> String {
         let text = turn.answer.isEmpty ? whileEmpty : turn.answer
         return turn.isFollowUp ? "❓ " + turn.question + "\n\n" + text : text
     }
@@ -361,7 +362,7 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
     }
 
     /// 回答的富文本：围栏代码块用等宽字体和浅底色，其余部分按行内 Markdown 渲染。
-    static func renderedAnswer(_ text: String, baseFont: NSFont) -> NSAttributedString {
+    nonisolated static func renderedAnswer(_ text: String, baseFont: NSFont) -> NSAttributedString {
         let result = NSMutableAttributedString()
         for segment in splitCodeBlocks(text) {
             if segment.isCode {
@@ -376,7 +377,7 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
     /// 把回答切成「普通段落」和「围栏代码块」。围栏行本身不显示，它占的那一处换行保留，
     /// 所以其余各行的位置不变。流式输出时代码块常常还没闭合：从开头的围栏到文末都算代码；
     /// 每次都按全文重新切分，闭合之后自然恢复。
-    static func splitCodeBlocks(_ text: String) -> [(text: String, isCode: Bool)] {
+    nonisolated static func splitCodeBlocks(_ text: String) -> [(text: String, isCode: Bool)] {
         guard !text.isEmpty else { return [] }
         var segments: [(text: String, isCode: Bool)] = []
         var lines: [String] = []
@@ -401,7 +402,7 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
 
     /// 代码块：等宽字体、原样保留，不做 Markdown 解析（代码里的 * 和 _ 不该被当成语法）。
     /// 底色不画在结尾的换行上，免得代码块下面多出一条空的高亮带。
-    private static func codeBlock(_ text: String, baseFont: NSFont) -> NSAttributedString {
+    private nonisolated static func codeBlock(_ text: String, baseFont: NSFont) -> NSAttributedString {
         let font = NSFont.monospacedSystemFont(ofSize: baseFont.pointSize, weight: .regular)
         let highlighted: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.textColor,
                                                           .backgroundColor: NSColor.unemphasizedSelectedContentBackgroundColor]
@@ -417,17 +418,20 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
 
     /// 行内 Markdown 渲染：粗体 / 斜体 / 行内代码 / 链接，保留原有换行——
     /// 聊天式回答不适合块级语法的段落重排；解析失败回落纯文本。
-    static func renderedInline(_ text: String, baseFont: NSFont) -> NSAttributedString {
+    nonisolated static func renderedInline(_ text: String, baseFont: NSFont) -> NSAttributedString {
         let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        guard var parsed = try? AttributedString(markdown: text, options: options) else {
+        guard let parsed = try? AttributedString(markdown: text, options: options) else {
             return NSAttributedString(string: text,
                                       attributes: [.font: baseFont,
                                                    .foregroundColor: NSColor.textColor])
         }
-        // 解析结果不带字体（转 NSAttributedString 也不会自动把 .strong 变粗体），
-        // 按行内语义逐 run 套字体；无语义的片段拿基础字体，避免掉回系统默认字号
-        let runs = parsed.runs.map { (range: $0.range, intent: $0.inlinePresentationIntent ?? []) }
-        for (range, intent) in runs {
+        // 解析结果不带字体（直接转 NSAttributedString 也不会自动把 .strong 变粗体），
+        // 按行内语义逐 run 套字体再拼起来；无语义的片段拿基础字体，避免掉回系统默认字号。
+        // 只读属性、不往 AttributedString 上回写：回写要经过 key path，严格并发检查不允许
+        let result = NSMutableAttributedString()
+        for run in parsed.runs {
+            // 用属性类型下标读取：点语法的访问器经由 key path 实现，严格并发检查不允许
+            let intent = run[AttributeScopes.FoundationAttributes.InlinePresentationIntentAttribute.self] ?? []
             var font = baseFont
             if intent.contains(.stronglyEmphasized) {   // **粗体**
                 font = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
@@ -438,17 +442,22 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
             if intent.contains(.code) {
                 font = NSFont.monospacedSystemFont(ofSize: baseFont.pointSize, weight: .regular)
             }
-            parsed[range].font = font
-            // 富文本缺省不带前景色时 NSTextView 会按黑色渲染，深色模式下变成黑字黑底；
-            // 显式给系统动态文字色，随明暗外观自动切换
-            parsed[range].foregroundColor = .textColor
+            var attributes: [NSAttributedString.Key: Any] = [
+                .font: font,
+                // 富文本缺省不带前景色时 NSTextView 会按黑色渲染，深色模式下变成黑字黑底；
+                // 显式给系统动态文字色，随明暗外观自动切换
+                .foregroundColor: NSColor.textColor,
+            ]
+            // 链接要带上：浮窗里的链接靠它才能点开
+            if let link = run[AttributeScopes.FoundationAttributes.LinkAttribute.self] { attributes[.link] = link }
+            result.append(NSAttributedString(string: String(parsed[run.range].characters), attributes: attributes))
         }
-        return NSAttributedString(parsed)
+        return result
     }
 
     /// 朗读用的纯文本：围栏代码块的围栏行整行跳过，其余去掉行内 Markdown 符号（链接只保留文字）；
     /// 解析失败就按原文朗读。
-    static func speechText(_ markdown: String) -> String {
+    nonisolated static func speechText(_ markdown: String) -> String {
         let spoken = markdown.split(separator: "\n", omittingEmptySubsequences: false)
             .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("```") }
             .joined(separator: "\n")

@@ -38,6 +38,22 @@ final class InMemoryDefaults: UserDefaults, @unchecked Sendable {
     private func number(forKey defaultName: String) -> NSNumber? { object(forKey: defaultName) as? NSNumber }
 }
 
+/// 给 @Sendable 回调记录调用用：这种闭包不能捕获可变的局部变量。
+final class Recorder<Element>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var items: [Element] = []
+
+    var values: [Element] {
+        lock.lock(); defer { lock.unlock() }
+        return items
+    }
+
+    func append(_ element: Element) {
+        lock.lock(); defer { lock.unlock() }
+        items.append(element)
+    }
+}
+
 /// 测试里的固定连接：不读进程的 defaults，结果不受开发机上残留配置的影响。
 let fixtureConnection = ConnectionSettings(url: URL(string: "https://fixture.invalid/chat/completions")!,
                                            model: "fixture-model", apiKey: "fixture-key", summaryLimit: 16_000)

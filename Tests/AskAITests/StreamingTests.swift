@@ -93,26 +93,26 @@ struct StreamingTests {
     @Test func aStreamCutBeforeCompletionStillFails() async throws {
         let fixture = StreamingFixture()
         defer { fixture.session.invalidateAndCancel() }
-        var updates: [String] = []
+        let updates = Recorder<String>()
         await #expect(throws: URLError.self) {
             _ = try await askLLM(QueryInput(preview: "q"), mode: historyMode("explain"),
                                  connection: fixture.connection("/cut"), session: fixture.session,
                                  onDelta: { updates.append($0) })
         }
-        #expect(updates == ["hel"])
+        #expect(updates.values == ["hel"])
     }
 
     @Test func reasoningIsStreamedSeparatelyOverHTTP() async throws {
         let fixture = StreamingFixture()
         defer { fixture.session.invalidateAndCancel() }
-        var answers: [String] = []
-        var reasoning: [String] = []
+        let answers = Recorder<String>()
+        let reasoning = Recorder<String>()
         let result = try await askLLM(QueryInput(preview: "q"), mode: historyMode("explain"),
                                       connection: fixture.connection("/reasoning"), session: fixture.session,
                                       onDelta: { answers.append($0) }, onReasoning: { reasoning.append($0) })
         // The return value and the content deltas carry the answer only; reasoning has its own channel.
         #expect(result == "hello")
-        #expect(answers == ["hel", "hello"])
-        #expect(reasoning == ["thinking"])
+        #expect(answers.values == ["hel", "hello"])
+        #expect(reasoning.values == ["thinking"])
     }
 }

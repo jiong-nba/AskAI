@@ -56,4 +56,20 @@ struct CodeBlockRenderingTests {
         #expect(ResultPanel.speechText("before\n```swift\nlet x = 1\n```\nafter") == "before\nlet x = 1\nafter")
         #expect(ResultPanel.speechText("**bold** and `code`") == "bold and code")
     }
+    // A link in the answer stays clickable: the link attribute must survive rendering.
+    @Test @MainActor func linksSurviveRendering() throws {
+        let rich = ResultPanel.renderedAnswer("see [docs](https://example.com/a) here", baseFont: base)
+        #expect(rich.string == "see docs here")
+        var links: [String] = []
+        rich.enumerateAttribute(.link, in: NSRange(location: 0, length: rich.length)) { value, _, _ in
+            if let value { links.append(String(describing: value)) }
+        }
+        #expect(links == ["https://example.com/a"])
+        // The link text keeps the ordinary dynamic text colour like everything else.
+        var uncoloured = 0
+        rich.enumerateAttribute(.foregroundColor, in: NSRange(location: 0, length: rich.length)) { color, range, _ in
+            if color == nil { uncoloured += NSMaxRange(range) - range.location }
+        }
+        #expect(uncoloured == 0)
+    }
 }

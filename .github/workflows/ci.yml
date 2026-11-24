@@ -30,3 +30,13 @@ jobs:
         run: python3 Tests/test_cli.py
       - name: Packager (signing failure, verification failure, replacement)
         run: bash Tests/test_packaging.sh
+      # Last: the extra flags invalidate the debug build the unit tests used.
+      # Nothing may remain that becomes an error in the Swift 6 language mode.
+      - name: Strict concurrency
+        run: |
+          set -o pipefail
+          swift build -Xswiftc -strict-concurrency=complete 2>&1 | tee strict-concurrency.log
+          if grep -q "this is an error in the Swift 6 language mode" strict-concurrency.log; then
+            echo "Diagnostics that are errors in the Swift 6 language mode are back." >&2
+            exit 1
+          fi
