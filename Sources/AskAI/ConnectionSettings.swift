@@ -126,7 +126,7 @@ struct ConnectionDraft: Equatable {
         guard !key.isEmpty || ConnectionSettings.isLocalEndpoint(url) else {
             throw AskError(L("请输入 API Key。", "Enter an API key."))
         }
-        guard let count = Int(limit), count >= QueryInput.previewLimit else {
+        guard let count = Int(limit.trimmingCharacters(in: .whitespacesAndNewlines)), count >= QueryInput.previewLimit else {
             throw AskError(L("全文上限至少为 2000 字。", "The full-summary limit must be at least 2000 characters."))
         }
         let degrees = Double(temperature.trimmingCharacters(in: .whitespacesAndNewlines))

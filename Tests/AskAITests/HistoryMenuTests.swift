@@ -32,8 +32,9 @@ struct HistoryMenuTests {
         #expect(AppDelegate.historyLabel(entry(minutesAgo: 0.5, source: long), now: now)
             == String(long.prefix(24)) + "…" + opener + historyMode("explain").title + " · " + L("刚刚", "just now")
             + (appIsChinese ? "）" : ")"))
-        // A multi-line selection does not break the menu title.
-        #expect(!AppDelegate.historyLabel(entry(minutesAgo: 0.5, source: "line one\nline two"), now: now).contains("\n"))
+        // A multi-line selection (including CRLF and surrounding whitespace) does not break the menu title.
+        let flat = AppDelegate.historyLabel(entry(minutesAgo: 0.5, source: "  line one\r\nline two  "), now: now)
+        #expect(!flat.contains("\n") && !flat.contains("\r") && flat.hasPrefix("line one line two"))
     }
 
     @Test func relativeTimeSteps() {

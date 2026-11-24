@@ -22,7 +22,7 @@ struct QueryInput {
 }
 
 @MainActor
-final class ResultPanel: NSPanel, NSTextFieldDelegate {
+final class ResultPanel: NSPanel, NSTextFieldDelegate, AVSpeechSynthesizerDelegate {
     typealias Send = (QueryInput, PromptMode, ConnectionSettings, [ChatTurn], StreamCallback?, StreamCallback?) async throws -> String
     /// 保存历史要等文件锁，放在后台任务里执行，所以必须是 Sendable 闭包。
     typealias Save = @Sendable (String, String, String, Int?, String?) throws -> Void
@@ -43,11 +43,14 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
     private let textView = NSTextView()
     private let questionField = NSTextField()
     private let sendButton = NSButton()
+    private let copyButton = NSButton()
+    private let speakButton = NSButton()
     private let stopOrRetryButton = NSButton()
     private let speaker = AVSpeechSynthesizer()
     private var sentCharacters = 0
     private var running: Task<Void, Never>?
     private var renderScheduled: Task<Void, Never>?
+    private var copyFeedback: Task<Void, Never>?
     private var lastStreamRender: ContinuousClock.Instant?
     private var requestID = UUID()
     private var turns: [ChatTurn] = []                 // 这段对话里已完成的轮次，追问时作为上下文
@@ -117,10 +120,8 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
         standardWindowButton(.zoomButton)?.isEnabled = false   // 浮窗不需要全屏/最大化按钮
         minSize = NSSize(width: 420, height: 220)
         title = Self.title(for: source)
-        for mode in PromptMode.all(defaults: defaults) {
-            modePicker.addItem(withTitle: mode.title)
-            modePicker.lastItem?.representedObject = mode.key
-        }
+        speaker.delegate = self
+        refreshModes()
         modePicker.target = self
         modePicker.action = #selector(choosePanelMode)
         modePicker.setAccessibilityLabel(L("本次提问模式", "Mode for this selection"))
@@ -157,14 +158,21 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
         sendButton.action = #selector(sendFollowUp)
         let prompt = NSStackView(views: [questionField, sendButton])
 
-        let copy = NSButton(title: L("复制", "Copy"), target: self, action: #selector(copyAnswer))
-        let speak = NSButton(title: L("朗读", "Speak"), target: self, action: #selector(speakAnswer))
+        copyButton.title = L("复制", "Copy")
+        copyButton.bezelStyle = .rounded
+        copyButton.target = self
+        copyButton.action = #selector(copyAnswer)
+        speakButton.title = L("朗读", "Speak")
+        speakButton.bezelStyle = .rounded
+        speakButton.target = self
+        speakButton.action = #selector(speakAnswer)
+        stopOrRetryButton.bezelStyle = .rounded
         stopOrRetryButton.target = self
         stopOrRetryButton.action = #selector(stopOrRetry)
         stopOrRetryButton.isHidden = true
         let trailing = NSView()
         trailing.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        let actions = NSStackView(views: [speak, copy, trailing, stopOrRetryButton])
+        let actions = NSStackView(views: [speakButton, copyButton, trailing, stopOrRetryButton])
 
         let view = NSView()
         contentView = view
@@ -189,20 +197,38 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
         ])
     }
 
+    /// 重建模式下拉列表（自定义模式增删改后同步），尽量保持之前选中的模式 key。
+    func refreshModes(selecting key: String? = nil) {
+        let targetKey = key ?? (modePicker.selectedItem?.representedObject as? String)
+        modePicker.removeAllItems()
+        for mode in PromptMode.all(defaults: defaults) {
+            modePicker.addItem(withTitle: mode.title)
+            modePicker.lastItem?.representedObject = mode.key
+        }
+        if let targetKey { selectMode(key: targetKey) }
+    }
+
+    private func selectMode(key: String) {
+        if let index = modePicker.itemArray.firstIndex(where: { ($0.representedObject as? String) == key }) {
+            modePicker.selectItem(at: index)
+        }
+    }
+
     private func updateControls(mode: PromptMode, sent: Int, limit: Int) {
-        modePicker.selectItem(withTitle: mode.title)
+        selectMode(key: mode.key)
         sentCharacters = sent
         refreshSummaryLimit(limit)
     }
 
-    func refreshSummaryLimit(_ limit: Int = ConnectionSettings.current().summaryLimit) {
+    func refreshSummaryLimit(_ limit: Int? = nil) {
+        let effectiveLimit = limit ?? ConnectionSettings.current(defaults: defaults).summaryLimit
         let sent = sentCharacters
         let mode = modePicker.selectedItem?.representedObject as? String
         rangeLabel.stringValue = L("原文 \(sent) / \(total) 字", "Source: \(sent) / \(total) characters")
         fullButton.isHidden = total <= QueryInput.previewLimit || (mode == "summarize" && sent == total)
-        fullButton.isEnabled = total <= limit
+        fullButton.isEnabled = total <= effectiveLimit
         if !fullButton.isHidden && !fullButton.isEnabled {
-            rangeLabel.stringValue += L("（上限 \(limit)）", " (limit \(limit))")
+            rangeLabel.stringValue += L("（上限 \(effectiveLimit)）", " (limit \(effectiveLimit))")
         }
     }
 
@@ -210,11 +236,11 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
     /// 条目本身是追问的话，换模式重问的是同一个问题。
     func show(_ entry: HistoryEntry) {
         cancelRequest()
-        let mode = historyMode(entry.mode)
+        let mode = historyMode(entry.mode, defaults: defaults)
         title = L("历史：", "History: ") + Self.title(for: source)
         let opening = QueryInput(preview: source + (entry.question.map { "\n\n" + $0 } ?? ""))
         updateControls(mode: mode, sent: entry.sentCharacters ?? opening.sent,
-                       limit: ConnectionSettings.current().summaryLimit)
+                       limit: ConnectionSettings.current(defaults: defaults).summaryLimit)
         turns = [ChatTurn(question: entry.question ?? opening.message, answer: entry.answer,
                           message: opening.message, isFollowUp: entry.question != nil)]
         lastRequest = (mode, entry.sentCharacters == total, entry.question)
@@ -224,6 +250,7 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
         failure = nil
         notice = ""
         render()
+        focusQuestionField()
     }
 
     @objc private func choosePanelMode() {
@@ -268,7 +295,7 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
             updateControls(mode: mode, sent: input.sent, limit: connection.summaryLimit)
         } else {
             // 追问不改「原文 N / M 字」：那是在说原文，不是在说这个问题
-            modePicker.selectItem(withTitle: mode.title)
+            selectMode(key: mode.key)
         }
         awaiting = true
         streaming = ""
@@ -326,7 +353,10 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
         renderScheduled?.cancel()
         renderScheduled = nil
         lastStreamRender = nil
-        if speaker.isSpeaking { speaker.stopSpeaking(at: .immediate) }
+        if speaker.isSpeaking {
+            speaker.stopSpeaking(at: .immediate)
+            speakButton.title = L("朗读", "Speak")
+        }
     }
 
     /// 流式输出合帧渲染（约 30fps）：高速模型每秒推送几十上百个分片，逐片重解析整段 Markdown
@@ -524,11 +554,17 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
         let screen = screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main
         guard let visible = screen?.visibleFrame else { center(); return }
         // 面板是按主屏尺寸创建的；鼠标在更小的那块屏上时，先把它收进那块屏的可见区
-        setContentSize(Self.panelSize(visible: visible))
+        setContentSize(Self.panelSize(visible: visible, defaults: defaults))
         setFrameOrigin(Self.nearMouseOrigin(mouse: mouse, panelSize: frame.size, visible: visible))
     }
 
-    override func close() { cancelRequest(); super.close() }
+    override func close() {
+        copyFeedback?.cancel()
+        copyFeedback = nil
+        copyButton.title = L("复制", "Copy")
+        cancelRequest()
+        super.close()
+    }
     override func cancelOperation(_ sender: Any?) { close() }
 
     /// ⌘C 复制回答：窗口显示时即成为 key window，无需先点按钮。
@@ -588,15 +624,27 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
     }
 
     /// 复制整段对话的 Markdown 原文：粘贴到别处保留语法，不带思考过程和状态行。
+    /// 用按钮文字变化给出安静的视觉反馈，不响系统错误提示音。
     @objc private func copyAnswer() {
         pasteboard.clearContents()
         pasteboard.setString(answerText, forType: .string)
-        NSSound.beep()
+        copyFeedback?.cancel()
+        copyButton.title = L("已复制 ✓", "Copied ✓")
+        copyFeedback = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(1_200))
+            guard let self, !Task.isCancelled else { return }
+            self.copyButton.title = L("复制", "Copy")
+            self.copyFeedback = nil
+        }
     }
 
     /// 朗读各轮回答（不读问题和分隔线），去掉行内 Markdown 符号。
     @objc private func speakAnswer() {
-        if speaker.isSpeaking { speaker.stopSpeaking(at: .immediate); return }
+        if speaker.isSpeaking {
+            speaker.stopSpeaking(at: .immediate)
+            speakButton.title = L("朗读", "Speak")
+            return
+        }
         let answers = (turns + [pendingTurn].compactMap { $0 }).map(\.answer).filter { !$0.isEmpty }
         let text = Self.speechText(answers.joined(separator: "\n\n"))
         guard !text.isEmpty else { return }
@@ -604,6 +652,15 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
         let hasCJK = text.unicodeScalars.contains { (0x4E00...0x9FFF).contains($0.value) }
         utterance.voice = AVSpeechSynthesisVoice(language: hasCJK ? "zh-CN" : "en-US")
         utterance.rate = 0.5
+        speakButton.title = L("停止朗读", "Stop Speaking")
         speaker.speak(utterance)
+    }
+
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        Task { @MainActor [weak self] in self?.speakButton.title = L("朗读", "Speak") }
+    }
+
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        Task { @MainActor [weak self] in self?.speakButton.title = L("朗读", "Speak") }
     }
 }

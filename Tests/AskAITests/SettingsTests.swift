@@ -118,6 +118,12 @@ struct SettingsTests {
         #expect(throws: AskError.self) { try invalid.save(to: defaults, environmentKey: nil) }
         #expect(defaults.string(forKey: "answerLanguage") == "zh" && defaults.string(forKey: "model") != "changed-model")
 
+        // Surrounding spaces in the limit field are trimmed instead of failing validation.
+        var padded = ConnectionDraft(defaults: defaults)
+        padded.savedKey = "fixture-key"
+        padded.limit = " 12000 "
+        #expect(try padded.connection(environmentKey: nil).summaryLimit == 12_000)
+
         // Back to "follow the UI" removes the key instead of storing an empty string.
         var back = reloaded
         back.answerLanguage = ""
