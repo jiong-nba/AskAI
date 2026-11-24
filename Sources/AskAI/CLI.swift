@@ -14,17 +14,17 @@ func runCheck() -> Never {
         key.map { "\(L("已设置", "set")) (\($0.count) chars)" } ?? L("未设置", "not set")
     }
     print(L("bundle id        : ", "bundle id        : ") + bundleID)
-    print(L("defaults 域      : ", "defaults domain  : ") + bundleID)
+    print(L("defaults 域     : ", "defaults domain  : ") + bundleID)
     print("env ASKAI_KEY    : " + status(envKey))
     print("defaults apiKey  : " + status(defaultsKey))
     print(L("优先级           : env ASKAI_KEY > defaults apiKey", "precedence       : env ASKAI_KEY > defaults apiKey"))
     print(L("生效模型         : ", "model            : ") + connection.model)
-    print(L("temperature     : ", "temperature      : ")
+    print(L("temperature      : ", "temperature      : ")
           + (connection.temperature.map { "\($0)" } ?? L("不发送（用服务商默认值）", "not sent (provider default)")))
     print(L("接口地址         : ", "endpoint         : ") + connection.url.absoluteString)
     if let bad = defaults.string(forKey: "baseURL"), ConnectionSettings.storedEndpoint(bad) == nil {
-        print(L("⚠️ baseURL 配置「\(bad)」无效（应为完整 https:// 地址），已回落默认地址",
-               "⚠️ configured baseURL '\(bad)' is invalid (expected a full https:// URL); using the default"))
+        print(L("⚠️ baseURL 配置「\(bad)」无效（应为完整 http:// 或 https:// 地址），已回落默认地址",
+               "⚠️ configured baseURL '\(bad)' is invalid (expected a full http:// or https:// URL); using the default"))
     }
     let hotkeyText = defaults.string(forKey: "hotkeyDesc") ?? "⌘⇧E"
     print(L("快捷键           : ", "hotkey           : ") + hotkeyText)

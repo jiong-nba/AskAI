@@ -126,7 +126,9 @@ git tag v1.x.y && git push origin v1.x.y
 
 Then build a distribution zip from a **separate temp bundle** (never overwrite the installed `AskAI.app`),
 ad-hoc sign it, and attach it to a GitHub release with install steps that mention both configuration paths
-(`defaults write` and `ASKAI_KEY`) plus a `--check` step. Update the Chinese release notes if the release is
+(`defaults write` and `ASKAI_KEY`) plus a `--check` step. The asset is ad-hoc signed and not notarized, so the
+steps must also say how to get past Gatekeeper (System Settings → Privacy & Security → Open Anyway on macOS 15
+or later; right-click → Open before that). Update the Chinese release notes if the release is
 announced in Chinese.
 
 **Release assets must match their tag.** Build each asset from that tag's own source
