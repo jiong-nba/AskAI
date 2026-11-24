@@ -8,7 +8,7 @@ echo "==> swift build -c release"
 swift build -c release
 
 APP="AskAI.app"
-APP_VERSION="1.2.0"
+APP_VERSION="1.2.1"
 STAGE_DIR=$(mktemp -d "./.AskAI-build.XXXXXX")
 trap 'rm -rf "${STAGE_DIR}"' EXIT
 STAGED_APP="${STAGE_DIR}/${APP}"
