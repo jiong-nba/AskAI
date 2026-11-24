@@ -23,6 +23,7 @@ Sources/AskAI/OCR.swift               # region capture and Vision OCR
 Sources/AskAI/Selection.swift         # Accessibility and pasteboard capture
 Sources/AskAI/ResultPanel.swift       # per-selection requests and result controls
 Sources/AskAI/ConnectionSettings.swift # live provider configuration and native settings
+Sources/AskAI/ModesSettings.swift      # user-defined prompt modes and the window that edits them
 Package.swift              # SwiftPM manifest, depends on HotKey
 make-app.sh                # builds a release binary and assembles AskAI.app (Info.plist + codesign)
 README.md                  # English, primary

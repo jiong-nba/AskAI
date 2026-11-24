@@ -28,6 +28,7 @@
 - **快捷键自定义**：菜单里直接按键录制；组合已被其他应用占用时会提示
 - **兼容任意 OpenAI 格式接口**：DeepSeek / OpenAI / 本地 Ollama 等。设置里提供常见服务商的地址预设；本机（localhost）接口不需要 Key
 - **回答语言单独设置**：默认跟随界面语言，也可以在设置里单独选简体中文或 English
+- **自定义模式**：在菜单栏 🤖 →「自定义模式…」里加自己的模式（名称 + 系统提示词），会出现在「模式」菜单和浮窗的模式下拉里
 
 ## 快速开始
 
@@ -62,6 +63,7 @@ open AskAI.app
 | 接口地址 | `defaults write com.dsh.AskAI baseURL "https://api.openai.com/v1/chat/completions"`（须为完整 `https://` 地址；填错时回落默认地址，`--check` 会提示） |
 | 快捷键 | 菜单 🤖 →「设置快捷键…」按键录制 |
 | 模式 | 菜单 🤖 →「模式」 |
+| 自定义模式 | 菜单 🤖 →「自定义模式…」（以 JSON 存在 `defaults` 的 `customModes` 里） |
 | 历史 | 编辑 `~/Library/Application Support/AskAI/history.json` |
 | 界面语言 | `defaults write com.dsh.AskAI lang zh`（或 `en`；默认跟随系统） |
 | Temperature | `defaults write com.dsh.AskAI temperature 0.3`（0–2；`-1` 表示不发送、用服务商默认值。OpenAI 的推理模型如 o 系列、GPT-5 只接受默认值，请设为 `-1`） |
