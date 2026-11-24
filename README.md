@@ -28,12 +28,13 @@ Native Swift menu-bar app with no Dock icon.
 - **Markdown rendering** — bold, italic, inline code and links in answers are rendered (block syntax shown verbatim)
 - **Reasoning models** — the thinking trace (reasoning_content, e.g. deepseek-reasoner) streams above the answer; history and copy keep the final answer
 - **Custom hotkey** — record it right in the menu; the recorder tells you when another app already uses the combination
-- **Any OpenAI-compatible endpoint** — DeepSeek, OpenAI, Ollama, etc.
+- **Any OpenAI-compatible endpoint** — DeepSeek, OpenAI, Ollama, etc. Settings offers the common addresses as presets, and endpoints on `localhost` need no API key
+- **Answer language of its own** — answers follow the UI language by default; choose Chinese or English separately in Settings
 
 ## Quick start
 
 1. Download the ZIP from the release page, unzip it, move `AskAI.app` to Applications, and open it.
-2. On first launch, enter your chat completions endpoint, model, and API key in Settings. Click **Test Connection**, then **Save**. Reopen Settings from the 🤖 menu to change providers for the next query. For v1.1.1 and earlier downloads, use the configuration commands below.
+2. On first launch, pick your provider in Settings (or enter its chat completions endpoint), then the model and API key. Endpoints on `localhost` need no key. Click **Test Connection**, then **Save**. Reopen Settings from the 🤖 menu to change providers for the next query. For v1.1.1 and earlier downloads, use the configuration commands below.
 3. Grant Accessibility access, select text, and press **⌘⇧E**.
 
 Building from source requires Swift 5.9+ and Xcode Command Line Tools:
@@ -67,10 +68,12 @@ Settings and the CLI share the same `defaults` preferences. Test Connection send
 | UI language | `defaults write com.dsh.AskAI lang en` (or `zh`; default follows macOS) |
 | Temperature | `defaults write com.dsh.AskAI temperature 0.3` (0–2; `-1` = do not send it and use the provider default. OpenAI's reasoning models such as the o-series and GPT-5 reject any other value, so use `-1` for them) |
 | Copy fallback wait | `defaults write com.dsh.AskAI copyTimeoutMs 350` (how long to wait for ⌘C before falling back to screenshot OCR; raise it for slow apps, 100–5000) |
+| Answer language | `defaults write com.dsh.AskAI answerLanguage zh` (or `en`; unset = follow the UI language) |
+| Save history | `defaults write com.dsh.AskAI saveHistory false` (stop adding entries; existing ones stay until you clear them) |
 
 Language fallback: any preferred system language other than Chinese falls back to the English UI,
 and the Translate mode targets English in that case (English input is translated into Simplified
-Chinese instead of being a no-op). Set `lang` explicitly if you want Chinese UI on a non-Chinese system.
+Chinese instead of being a no-op). Set `lang` explicitly if you want Chinese UI on a non-Chinese system, and `answerLanguage` to choose the answer language on its own.
 
 `ASKAI_KEY` (environment variable) takes precedence over `defaults`, which is convenient for scripts and debugging.
 An empty `ASKAI_KEY` counts as unset.
@@ -161,7 +164,8 @@ tccutil reset Accessibility com.dsh.AskAI
 
 - **API key** lives in `defaults` (`~/Library/Preferences/com.dsh.AskAI.plist`), plain text, local only
 - **History** lives in `~/Library/Application Support/AskAI/history.json`, permissions `0600`, max 20 entries;
-  concurrent CLI and menu-bar queries share the same 20 entries. Use "History → Clear History" to delete them.
+  concurrent CLI and menu-bar queries share the same 20 entries. Use "History → Clear History" to delete them,
+  or `saveHistory false` to stop adding new ones.
   If the file cannot be read (for example after an interrupted hand edit), it is moved aside as
   `history.corrupt-<timestamp>.json` and a fresh one is started; the panel and `--ask` say so when that happens
 - Selected text is sent only to the endpoint you configured; the app collects nothing

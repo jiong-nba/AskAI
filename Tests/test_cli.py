@@ -53,8 +53,8 @@ class CLITests(unittest.TestCase):
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.addCleanup(self.server.shutdown)
 
-    def cli(self, *args):
-        url = f"http://127.0.0.1:{self.server.server_port}"
+    def cli(self, *args, base_url=None):
+        url = base_url or f"http://127.0.0.1:{self.server.server_port}"
         return subprocess.run([BINARY, "-lang", "en", "-baseURL", url, *args],
                               capture_output=True, text=True, env=self.env, timeout=20)
 
@@ -71,10 +71,18 @@ class CLITests(unittest.TestCase):
 
     def test_missing_key(self):
         self.env["ASKAI_KEY"] = ""
-        result = self.ask("question")
+        # A remote endpoint without a key is refused before any request goes out.
+        result = self.cli("--ask", "question", base_url="https://fixture.invalid/chat/completions")
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(result.stdout, "")
         self.assertIn("No API key", result.stderr)
+
+    def test_local_endpoint_needs_no_key(self):
+        # Ollama, LM Studio and the like have no key: the loopback fixture must work without one.
+        self.env["ASKAI_KEY"] = ""
+        result = self.ask("question")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines()[0], "question")
 
     def test_missing_question(self):
         result = self.cli("--ask")
@@ -88,6 +96,16 @@ class CLITests(unittest.TestCase):
         self.assertEqual(result.stderr, "")
         self.assertEqual(result.stdout.splitlines()[0], "fixture answer")
         self.assertIn("json round-trip : ok", result.stdout)
+
+    def test_history_can_be_switched_off(self):
+        self.history.parent.mkdir(parents=True)
+        self.history.write_text(json.dumps([dict(time=0, mode="explain", source="old", answer="saved")]))
+        result = self.cli("-saveHistory", "NO", "--ask", "question")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines()[0], "question")
+        self.assertIn("history file : saving is disabled", result.stdout)
+        # Existing entries are left alone and nothing is added.
+        self.assertEqual([entry["source"] for entry in json.loads(self.history.read_text())], ["old"])
 
     def test_concurrent_history(self):
         old = [dict(time=i, mode="explain", source=f"old-{i}", answer="saved")

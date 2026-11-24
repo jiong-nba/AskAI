@@ -5,6 +5,28 @@ struct AskError: LocalizedError {
     init(_ text: String) { errorDescription = text }
 }
 
+/// 常见服务商的 chat completions 地址，第一次配置时不用去翻文档。模型名各家变得快，不预填。
+struct ProviderPreset: Identifiable, Equatable {
+    let name: String
+    let url: String
+    var id: String { name }
+
+    static let all: [ProviderPreset] = [
+        ProviderPreset(name: "DeepSeek", url: "https://api.deepseek.com/chat/completions"),
+        ProviderPreset(name: "OpenAI", url: "https://api.openai.com/v1/chat/completions"),
+        ProviderPreset(name: "OpenRouter", url: "https://openrouter.ai/api/v1/chat/completions"),
+        ProviderPreset(name: "Moonshot (Kimi)", url: "https://api.moonshot.cn/v1/chat/completions"),
+        ProviderPreset(name: "Ollama (local)", url: "http://localhost:11434/v1/chat/completions"),
+        ProviderPreset(name: "LM Studio (local)", url: "http://localhost:1234/v1/chat/completions"),
+    ]
+
+    /// 地址对应的预设；手动改过的地址不属于任何预设。
+    static func matching(endpoint: String) -> ProviderPreset? {
+        let text = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+        return all.first { $0.url == text }
+    }
+}
+
 struct ConnectionSettings {
     static let defaultURL = URL(string: "https://api.deepseek.com/chat/completions")!
     static let defaultModel = "deepseek-chat"
@@ -16,6 +38,17 @@ struct ConnectionSettings {
     let summaryLimit: Int
     /// nil 表示不发送，用服务商的默认值：OpenAI 的推理模型（o 系列、GPT-5）对非默认值直接返回 400
     var temperature: Double? = defaultTemperature
+
+    /// 本机回环地址上的服务（Ollama、LM Studio 等）不校验 Key，留空即可。
+    static func isLocalEndpoint(_ url: URL) -> Bool {
+        guard let host = url.host?.lowercased() else { return false }
+        return ["localhost", "127.0.0.1", "::1", "[::1]"].contains(host)
+    }
+
+    var isLocal: Bool { Self.isLocalEndpoint(url) }
+
+    /// 能不能直接发请求：有 Key，或者是不需要 Key 的本机接口。
+    var isConfigured: Bool { !apiKey.isEmpty || isLocal }
 
     // Keep the v1.1.1 interpretation of existing defaults. New form values are validated before saving.
     static func storedEndpoint(_ text: String) -> URL? {
@@ -60,12 +93,15 @@ struct ConnectionSettings {
     }
 }
 
+/// 设置窗里的表单状态：接口相关的一部分加回答语言、历史开关。
 struct ConnectionDraft: Equatable {
     var endpoint: String
     var model: String
     var savedKey: String
     var limit: String
     var temperature: String
+    var answerLanguage: String      // "" 跟随界面，或 zh / en
+    var savesHistory: Bool
 
     init(defaults: UserDefaults = .standard) {
         let current = ConnectionSettings.current(defaults: defaults)
@@ -74,6 +110,8 @@ struct ConnectionDraft: Equatable {
         savedKey = defaults.string(forKey: "apiKey") ?? ""
         limit = String(current.summaryLimit)
         temperature = current.temperature.map { "\($0)" } ?? "-1"
+        answerLanguage = AnswerLanguage.stored(defaults: defaults)?.rawValue ?? ""
+        savesHistory = historySavingEnabled(defaults: defaults)
     }
 
     func connection(environmentKey: String?) throws -> ConnectionSettings {
@@ -84,7 +122,10 @@ struct ConnectionDraft: Equatable {
         guard !name.isEmpty else { throw AskError(L("请输入模型名称。", "Enter a model name.")) }
         let key = ConnectionSettings.resolvedKey(environmentKey: environmentKey,
                                                  savedKey: savedKey.trimmingCharacters(in: .whitespacesAndNewlines))
-        guard !key.isEmpty else { throw AskError(L("请输入 API Key。", "Enter an API key.")) }
+        // 本机接口（Ollama、LM Studio 等）不需要 Key，不必为了通过校验随便填一个
+        guard !key.isEmpty || ConnectionSettings.isLocalEndpoint(url) else {
+            throw AskError(L("请输入 API Key。", "Enter an API key."))
+        }
         guard let count = Int(limit), count >= QueryInput.previewLimit else {
             throw AskError(L("全文上限至少为 2000 字。", "The full-summary limit must be at least 2000 characters."))
         }
@@ -103,18 +144,31 @@ struct ConnectionDraft: Equatable {
         _ = try await askLLM(QueryInput(preview: "OK"), mode: mode, connection: connection, session: session)
     }
 
+    /// 校验通过后一次写回 defaults；有任何一项不合法就什么都不写。
     func save(to defaults: UserDefaults = .standard, environmentKey: String?) throws {
         let settings = try connection(environmentKey: environmentKey)
+        guard ["", "zh", "en"].contains(answerLanguage) else {
+            throw AskError(L("回答语言只能是「跟随界面」、zh 或 en。",
+                             "Answer language must be follow-the-UI, zh or en."))
+        }
         defaults.set(settings.url.absoluteString, forKey: "baseURL")
         defaults.set(settings.model, forKey: "model")
         if !ConnectionSettings.hasEnvironmentKey(environmentKey) { defaults.set(settings.apiKey, forKey: "apiKey") }
         defaults.set(settings.summaryLimit, forKey: "fullSummaryChars")
         defaults.set(settings.temperature ?? -1, forKey: "temperature")
+        if answerLanguage.isEmpty {
+            defaults.removeObject(forKey: "answerLanguage")
+        } else {
+            defaults.set(answerLanguage, forKey: "answerLanguage")
+        }
+        defaults.set(savesHistory, forKey: "saveHistory")
     }
 }
 
 struct ConnectionSettingsView: View {
     @State private var draft = ConnectionDraft()
+    /// 选中的接口预设；空串表示自定义地址。
+    @State private var preset = ProviderPreset.matching(endpoint: ConnectionDraft().endpoint)?.name ?? ""
     @State private var status = ""
     @State private var test: Task<Void, Never>?
     private let environmentKey = ProcessInfo.processInfo.environment["ASKAI_KEY"]
@@ -122,16 +176,39 @@ struct ConnectionSettingsView: View {
 
     var body: some View {
         Form {
-            TextField(L("接口地址", "Endpoint"), text: $draft.endpoint)
-            TextField(L("模型", "Model"), text: $draft.model)
-            if !ConnectionSettings.hasEnvironmentKey(environmentKey) {
-                SecureField("API Key", text: $draft.savedKey)
-            } else {
-                LabeledContent("API Key", value: L("由 ASKAI_KEY 提供", "Provided by ASKAI_KEY"))
+            Section(L("接口", "Endpoint")) {
+                Picker(L("预设", "Preset"), selection: $preset) {
+                    Text(L("自定义", "Custom")).tag("")
+                    ForEach(ProviderPreset.all) { Text($0.name).tag($0.name) }
+                }
+                .onChange(of: preset) { name in
+                    if let chosen = ProviderPreset.all.first(where: { $0.name == name }) {
+                        draft.endpoint = chosen.url
+                    }
+                }
+                TextField(L("接口地址", "Endpoint"), text: $draft.endpoint)
+                    .onChange(of: draft.endpoint) { endpoint in
+                        preset = ProviderPreset.matching(endpoint: endpoint)?.name ?? ""
+                    }
+                TextField(L("模型", "Model"), text: $draft.model)
+                if !ConnectionSettings.hasEnvironmentKey(environmentKey) {
+                    SecureField("API Key", text: $draft.savedKey)
+                        .help(L("本机接口（localhost）可以留空", "Optional for endpoints on localhost"))
+                } else {
+                    LabeledContent("API Key", value: L("由 ASKAI_KEY 提供", "Provided by ASKAI_KEY"))
+                }
+                TextField(L("全文总结上限（字符）", "Full-summary limit (characters)"), text: $draft.limit)
+                TextField(L("Temperature（-1 = 不发送，用服务商默认值）", "Temperature (-1 = leave it to the provider)"),
+                          text: $draft.temperature)
             }
-            TextField(L("全文总结上限（字符）", "Full-summary limit (characters)"), text: $draft.limit)
-            TextField(L("Temperature（-1 = 不发送，用服务商默认值）", "Temperature (-1 = leave it to the provider)"),
-                      text: $draft.temperature)
+            Section(L("问答", "Answers")) {
+                Picker(L("回答语言", "Answer language"), selection: $draft.answerLanguage) {
+                    Text(L("跟随界面", "Follow the UI")).tag("")
+                    Text("简体中文").tag("zh")
+                    Text("English").tag("en")
+                }
+                Toggle(L("保存历史记录", "Save history"), isOn: $draft.savesHistory)
+            }
             Text(status).font(.callout).lineLimit(3).textSelection(.enabled)
                 .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
                 .help(status)

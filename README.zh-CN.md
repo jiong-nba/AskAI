@@ -26,12 +26,13 @@
 - **Markdown 渲染**：回答里的粗体、斜体、行内代码、链接按行内语法渲染（块级语法按原文显示）
 - **推理模型**：deepseek-reasoner 等的思考过程（reasoning_content）在正文上方实时展示，历史与复制保存的仍是正文
 - **快捷键自定义**：菜单里直接按键录制；组合已被其他应用占用时会提示
-- **兼容任意 OpenAI 格式接口**：DeepSeek / OpenAI / 本地 Ollama 等
+- **兼容任意 OpenAI 格式接口**：DeepSeek / OpenAI / 本地 Ollama 等。设置里提供常见服务商的地址预设；本机（localhost）接口不需要 Key
+- **回答语言单独设置**：默认跟随界面语言，也可以在设置里单独选简体中文或 English
 
 ## 快速开始
 
 1. 从发布页下载 ZIP，解压后将 `AskAI.app` 拖入「应用程序」并打开。
-2. 首次启动时，在设置窗填入聊天接口完整地址、模型和 API Key，点「测试连接」，然后保存。之后可从菜单栏 🤖 →「设置…」修改，保存后对下一次查询生效。若下载的是 v1.1.1 或更早版本，可用下方配置表里的命令配置。
+2. 首次启动时，在设置窗选择服务商预设（或填入聊天接口完整地址），再填模型和 API Key（本机 localhost 接口不需要 Key），点「测试连接」，然后保存。之后可从菜单栏 🤖 →「设置…」修改，保存后对下一次查询生效。若下载的是 v1.1.1 或更早版本，可用下方配置表里的命令配置。
 3. 授予辅助功能权限，选中文字后按 **⌘⇧E**。
 
 从源码构建需要 Swift 5.9+ 和 Xcode Command Line Tools：
@@ -65,9 +66,11 @@ open AskAI.app
 | 界面语言 | `defaults write com.dsh.AskAI lang zh`（或 `en`；默认跟随系统） |
 | Temperature | `defaults write com.dsh.AskAI temperature 0.3`（0–2；`-1` 表示不发送、用服务商默认值。OpenAI 的推理模型如 o 系列、GPT-5 只接受默认值，请设为 `-1`） |
 | ⌘C 回退等待 | `defaults write com.dsh.AskAI copyTimeoutMs 350`（等 ⌘C 生效的毫秒数，超时则落到截图 OCR；目标应用响应慢可调大，范围 100–5000） |
+| 回答语言 | `defaults write com.dsh.AskAI answerLanguage zh`（或 `en`；不设则跟随界面语言） |
+| 保存历史 | `defaults write com.dsh.AskAI saveHistory false`（不再记录新条目；已有的保留到手动清空） |
 
 语言回落规则：系统首选语言不是中文时，界面回落到英文，此时「翻译」模式的目标语言是英文
-（若原文本身是英文，则译为简体中文，避免原样输出）。在非中文系统上想用中文界面，请显式设置 `lang`。
+（若原文本身是英文，则译为简体中文，避免原样输出）。在非中文系统上想用中文界面，请显式设置 `lang`；回答语言可以用 `answerLanguage` 单独指定，不必跟着界面走。
 
 环境变量 `ASKAI_KEY` 优先于 `defaults`，适合脚本与调试。`ASKAI_KEY` 设为空字符串视为未设置。
 
@@ -139,7 +142,7 @@ tccutil reset Accessibility com.dsh.AskAI
 
 - **API Key** 存在 `defaults`（`~/Library/Preferences/com.dsh.AskAI.plist`），明文，仅本机
 - **历史记录**存在 `~/Library/Application Support/AskAI/history.json`，权限 `0600`，最多 20 条，
-  菜单栏和命令行并发查询共用这 20 条记录，可通过「历史记录 → 清空历史」删除。
+  菜单栏和命令行并发查询共用这 20 条记录，可通过「历史记录 → 清空历史」删除，或用 `saveHistory false` 关掉记录。
   文件读不出来时（例如手动编辑改坏了），会另存为 `history.corrupt-<时间戳>.json` 并重建，浮窗和 `--ask` 都会提示
 - 选中文本只发送到你配置的接口地址，工具本身不收集任何数据
 

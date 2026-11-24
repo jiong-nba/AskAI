@@ -129,9 +129,16 @@ func clearHistoryStorage() {
     }
 }
 
+/// 是否往 history.json 里写。关掉之后已有的条目保留，直到用户清空。
+/// defaults write com.dsh.AskAI saveHistory false
+func historySavingEnabled(defaults: UserDefaults = .standard) -> Bool {
+    // 没设就是开；设了就按布尔值读（defaults write ... false 存的是 Bool，命令行参数 -saveHistory NO 给的是字符串）
+    defaults.object(forKey: "saveHistory") == nil || defaults.bool(forKey: "saveHistory")
+}
+
 func appendHistory(mode: String, source: String, answer: String, sentCharacters: Int? = nil,
                     question: String? = nil) throws {
-    guard !answer.isEmpty, !answer.hasPrefix("❌") else { return }
+    guard !answer.isEmpty, !answer.hasPrefix("❌"), historySavingEnabled() else { return }
     try withHistoryLock {
         try migrateLegacyHistoryIfNeeded()
         var list = try readHistoryFile()
