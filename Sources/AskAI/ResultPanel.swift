@@ -43,13 +43,33 @@ final class ResultPanel: NSPanel {
     private var latestReasoning = ""   // 推理模型本次请求的思考过程（仅浮窗展示用）
     private var notice = ""            // 回答下方的状态说明（如 history.json 被挪开重建），仅显示用
 
-    /// 浮窗尺寸：默认 550×310；拖拽调整后记住（panelWidth/panelHeight），换小屏时按可见高度兜底
-    static func panelSize(screenHeight: CGFloat? = NSScreen.main?.visibleFrame.height,
+    /// 浮窗的内容区尺寸：默认 550×310；拖拽调整后记住（panelWidth/panelHeight）。
+    /// 记住的尺寸放不进当前屏幕的可见区时收回来，免得整块跑到屏幕外
+    static func panelSize(visible: NSRect?, defaults: UserDefaults = .standard) -> NSSize {
+        panelSize(visibleWidth: visible?.width, visibleHeight: visible?.height, defaults: defaults)
+    }
+
+    static func panelSize(visibleWidth: CGFloat?, visibleHeight: CGFloat?,
                           defaults: UserDefaults = .standard) -> NSSize {
-        let width = max(420, CGFloat(defaults.object(forKey: "panelWidth") as? Int ?? 550))
+        var width = max(420, CGFloat(defaults.object(forKey: "panelWidth") as? Int ?? 550))
         var height = max(220, CGFloat(defaults.object(forKey: "panelHeight") as? Int ?? 310))
-        if let screenHeight, screenHeight > 240 { height = min(height, screenHeight - 20) }
+        if let visibleWidth, visibleWidth > 436 { width = min(width, visibleWidth - 16) }
+        if let visibleHeight, visibleHeight > 240 { height = min(height, visibleHeight - 20) }
         return NSSize(width: width, height: height)
+    }
+
+    /// 记住用户拖出来的尺寸。存的是内容区大小，和 panelSize() 取用的口径一致：
+    /// 存整窗 frame 的话，每拖一次、下次打开就多出一个标题栏的高度。
+    static func rememberSize(of window: NSWindow, defaults: UserDefaults = .standard) {
+        let size = window.contentRect(forFrameRect: window.frame).size
+        defaults.set(Int(size.width), forKey: "panelWidth")
+        defaults.set(Int(size.height), forKey: "panelHeight")
+    }
+
+    /// 窗口标题：原文前 40 字，换行换成空格（OCR 出来的多行文本会把标题撑成好几行）
+    static func title(for source: String) -> String {
+        let flat = source.replacingOccurrences(of: "\r\n", with: " ").replacingOccurrences(of: "\n", with: " ")
+        return String(flat.prefix(40))
     }
 
     init(source: String, pasteboard: NSPasteboard = .general,
@@ -60,14 +80,14 @@ final class ResultPanel: NSPanel {
         self.send = send
         self.save = save
         self.pasteboard = pasteboard
-        super.init(contentRect: NSRect(origin: .zero, size: Self.panelSize()),
+        super.init(contentRect: NSRect(origin: .zero, size: Self.panelSize(visible: NSScreen.main?.visibleFrame)),
                    styleMask: [.titled, .closable, .nonactivatingPanel], backing: .buffered, defer: false)
         isReleasedWhenClosed = false
         level = .floating
         becomesKeyOnlyIfNeeded = false
         styleMask.insert(.resizable)   // 可拖拽调整；尺寸在 windowDidEndLiveResize 里记住
         minSize = NSSize(width: 420, height: 220)
-        title = String(source.prefix(40))
+        title = Self.title(for: source)
         for mode in PromptMode.all {
             modePicker.addItem(withTitle: mode.title)
             modePicker.lastItem?.representedObject = mode.key
@@ -137,7 +157,7 @@ final class ResultPanel: NSPanel {
     func show(_ entry: HistoryEntry) {
         cancelRequest()
         let mode = historyMode(entry.mode)
-        title = L("历史：", "History: ") + String(source.prefix(40))
+        title = L("历史：", "History: ") + Self.title(for: source)
         updateControls(mode: mode, sent: entry.sentCharacters ?? min(total, QueryInput.previewLimit),
                        limit: ConnectionSettings.current().summaryLimit)
         setAnswer(entry.answer)
@@ -164,7 +184,7 @@ final class ResultPanel: NSPanel {
             return nil
         }
         let id = requestID
-        title = "\(mode.title) · \(source.prefix(40))"
+        title = "\(mode.title) · \(Self.title(for: source))"
         updateControls(mode: mode, sent: input.sent, limit: connection.summaryLimit)
         setAnswer(L("思考中…", "Thinking…"))
         latestReasoning = ""
@@ -286,6 +306,8 @@ final class ResultPanel: NSPanel {
         let mouse = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main
         guard let visible = screen?.visibleFrame else { center(); return }
+        // 面板是按主屏尺寸创建的；鼠标在更小的那块屏上时，先把它收进那块屏的可见区
+        setContentSize(Self.panelSize(visible: visible))
         setFrameOrigin(Self.nearMouseOrigin(mouse: mouse, panelSize: frame.size, visible: visible))
     }
 
@@ -295,7 +317,8 @@ final class ResultPanel: NSPanel {
     /// ⌘C 复制回答：窗口显示时即成为 key window，无需先点按钮。
     /// 若用户已用鼠标选中了部分文字，则放行给系统，复制的是选区。
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        // 只看四个修饰键：Caps Lock、Fn 这类状态不该让 ⌘C 失效
+        let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
         if flags == .command,
            event.charactersIgnoringModifiers?.lowercased() == "c",
            textView.selectedRange().length == 0 {

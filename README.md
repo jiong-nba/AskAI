@@ -22,7 +22,7 @@ Native Swift menu-bar app with no Dock icon.
 - **Read aloud** — system TTS, picks a Chinese or English voice automatically; reads the answer without Markdown symbols
 - **Copy result** — press ⌘C in the panel (or click Copy) to copy the answer as Markdown source, without the reasoning trace; with text selected, ⌘C copies the selection
 - **Near the cursor** — the panel opens next to the selection instead of screen center
-- **Resizable** — drag to resize the result panel; the size is remembered
+- **Resizable** — drag to resize the result panel; the size is remembered, and pulled back on screen when it no longer fits the display in use
 - **Markdown rendering** — bold, italic, inline code and links in answers are rendered (block syntax shown verbatim)
 - **Reasoning models** — the thinking trace (reasoning_content, e.g. deepseek-reasoner) streams above the answer; history and copy keep the final answer
 - **Custom hotkey** — record it right in the menu; the recorder tells you when another app already uses the combination
@@ -69,6 +69,7 @@ and the Translate mode targets English in that case (English input is translated
 Chinese instead of being a no-op). Set `lang` explicitly if you want Chinese UI on a non-Chinese system.
 
 `ASKAI_KEY` (environment variable) takes precedence over `defaults`, which is convenient for scripts and debugging.
+An empty `ASKAI_KEY` counts as unset.
 
 ## Command line
 

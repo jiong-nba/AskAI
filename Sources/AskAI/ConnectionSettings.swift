@@ -26,12 +26,26 @@ struct ConnectionSettings {
         return url
     }
 
+    /// 实际生效的 Key：ASKAI_KEY 优先，其次是 defaults。空字符串的环境变量当作没设置——
+    /// 否则它会遮蔽已保存的 Key，而设置窗又因为“环境变量存在”不给输入框，用户无路可走。
+    static func resolvedKey(environmentKey: String?, savedKey: String?) -> String {
+        if let environmentKey, !environmentKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return environmentKey
+        }
+        return savedKey ?? ""
+    }
+
+    /// ASKAI_KEY 是否真的提供了 Key（空字符串不算）。
+    static func hasEnvironmentKey(_ environmentKey: String?) -> Bool {
+        resolvedKey(environmentKey: environmentKey, savedKey: nil) != ""
+    }
+
     static func current(defaults: UserDefaults = .standard,
                         environmentKey: String? = ProcessInfo.processInfo.environment["ASKAI_KEY"]) -> Self {
         let limit = defaults.integer(forKey: "fullSummaryChars")
         return Self(url: defaults.string(forKey: "baseURL").flatMap(storedEndpoint) ?? defaultURL,
                     model: defaults.string(forKey: "model") ?? defaultModel,
-                    apiKey: environmentKey ?? defaults.string(forKey: "apiKey") ?? "",
+                    apiKey: resolvedKey(environmentKey: environmentKey, savedKey: defaults.string(forKey: "apiKey")),
                     summaryLimit: limit >= QueryInput.previewLimit ? limit : defaultSummaryLimit)
     }
 }
@@ -56,7 +70,8 @@ struct ConnectionDraft: Equatable {
         }
         let name = model.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { throw AskError(L("请输入模型名称。", "Enter a model name.")) }
-        let key = environmentKey ?? savedKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let key = ConnectionSettings.resolvedKey(environmentKey: environmentKey,
+                                                 savedKey: savedKey.trimmingCharacters(in: .whitespacesAndNewlines))
         guard !key.isEmpty else { throw AskError(L("请输入 API Key。", "Enter an API key.")) }
         guard let count = Int(limit), count >= QueryInput.previewLimit else {
             throw AskError(L("全文上限至少为 2000 字。", "The full-summary limit must be at least 2000 characters."))
@@ -74,7 +89,7 @@ struct ConnectionDraft: Equatable {
         let settings = try connection(environmentKey: environmentKey)
         defaults.set(settings.url.absoluteString, forKey: "baseURL")
         defaults.set(settings.model, forKey: "model")
-        if environmentKey == nil { defaults.set(settings.apiKey, forKey: "apiKey") }
+        if !ConnectionSettings.hasEnvironmentKey(environmentKey) { defaults.set(settings.apiKey, forKey: "apiKey") }
         defaults.set(settings.summaryLimit, forKey: "fullSummaryChars")
     }
 }
@@ -90,7 +105,7 @@ struct ConnectionSettingsView: View {
         Form {
             TextField(L("接口地址", "Endpoint"), text: $draft.endpoint)
             TextField(L("模型", "Model"), text: $draft.model)
-            if environmentKey == nil {
+            if !ConnectionSettings.hasEnvironmentKey(environmentKey) {
                 SecureField("API Key", text: $draft.savedKey)
             } else {
                 LabeledContent("API Key", value: L("由 ASKAI_KEY 提供", "Provided by ASKAI_KEY"))

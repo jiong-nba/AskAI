@@ -93,6 +93,29 @@ struct QueryWorkflowTests {
         #expect(defaults.string(forKey: "baseURL") == live.url.absoluteString)
     }
 
+    // An empty ASKAI_KEY counts as unset: it must not mask the saved key, and Settings must still
+    // be able to accept one (the form shows the field whenever no environment key is provided).
+    @Test func emptyEnvironmentKeyFallsBackToTheSavedKey() throws {
+        let suite = "AskAI-test-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set("saved-key", forKey: "apiKey")
+        #expect(ConnectionSettings.current(defaults: defaults, environmentKey: "").apiKey == "saved-key")
+        #expect(ConnectionSettings.current(defaults: defaults, environmentKey: "   ").apiKey == "saved-key")
+        #expect(ConnectionSettings.current(defaults: defaults, environmentKey: nil).apiKey == "saved-key")
+        #expect(ConnectionSettings.current(defaults: defaults, environmentKey: "env-key").apiKey == "env-key")
+        #expect(!ConnectionSettings.hasEnvironmentKey("") && ConnectionSettings.hasEnvironmentKey("env-key"))
+
+        var draft = ConnectionDraft(defaults: defaults)
+        draft.endpoint = "https://fixture.invalid/v1/chat/completions"
+        draft.model = "fixture-model"
+        #expect(try draft.connection(environmentKey: "").apiKey == "saved-key")
+        // With ASKAI_KEY="" the key typed in the form is what counts, so saving must reach defaults.
+        draft.savedKey = "typed-in-the-form"
+        try draft.save(to: defaults, environmentKey: "")
+        #expect(defaults.string(forKey: "apiKey") == "typed-in-the-form")
+    }
+
     @Test @MainActor func directSelectionAndCopyFallback() async throws {
         var copies = 0
         let copy: (pid_t) async -> String? = { _ in copies += 1; return "fallback" }
