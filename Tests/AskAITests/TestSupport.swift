@@ -54,6 +54,45 @@ final class Recorder<Element>: @unchecked Sendable {
     }
 }
 
+/// 一个带锁的盒子：给需要在并发检查下读写的静态状态用（`nonisolated(unsafe)` 要 Swift 5.10）。
+final class Locked<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Value
+
+    init(_ value: Value) { self.value = value }
+
+    func get() -> Value {
+        lock.lock(); defer { lock.unlock() }
+        return value
+    }
+
+    func set(_ newValue: Value) {
+        lock.lock(); defer { lock.unlock() }
+        value = newValue
+    }
+}
+
+/// 一次性的信号：测试夹具等到它才继续，用不着靠睡眠去猜。
+final class Cue: @unchecked Sendable {
+    private let condition = NSCondition()
+    private var signalled = false
+
+    func signal() {
+        condition.lock()
+        signalled = true
+        condition.broadcast()
+        condition.unlock()
+    }
+
+    /// 等到信号返回 true；超时返回 false。
+    func wait(seconds: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(seconds)
+        condition.lock(); defer { condition.unlock() }
+        while !signalled && condition.wait(until: deadline) { }
+        return signalled
+    }
+}
+
 /// 测试里的固定连接：不读进程的 defaults，结果不受开发机上残留配置的影响。
 let fixtureConnection = ConnectionSettings(url: URL(string: "https://fixture.invalid/chat/completions")!,
                                            model: "fixture-model", apiKey: "fixture-key", summaryLimit: 16_000)
