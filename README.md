@@ -38,6 +38,11 @@ Native Swift menu-bar app with no Dock icon.
 2. On first launch, pick your provider in Settings (or enter its chat completions endpoint), then the model and API key. Endpoints on `localhost` need no key. Click **Test Connection**, then **Save**. Reopen Settings from the 🤖 menu to change providers for the next query. For v1.1.1 and earlier downloads, use the configuration commands below.
 3. Grant Accessibility access, select text, and press **⌘⇧E**.
 
+> The release is ad-hoc signed and not notarized, so Gatekeeper blocks the first launch.
+> On macOS 15 or later, try to open it once, then go to System Settings → Privacy & Security and click
+> **Open Anyway**. On earlier versions, right-click `AskAI.app` → **Open**.
+> `xattr -dr com.apple.quarantine /Applications/AskAI.app` clears the flag directly.
+
 Building from source requires Swift 5.9+ and Xcode Command Line Tools:
 
 ```bash
@@ -54,6 +59,9 @@ Both direct selection capture and simulated Copy use Accessibility permission.
 Without it, text capture fails and the app falls back to screenshot OCR
 (Vision OCR does not need this permission). See [Signing & permissions](#signing--why-your-grant-keeps-resetting).
 
+The screenshot itself needs **Screen Recording** permission (System Settings → Privacy & Security →
+Screen Recording): until it is granted, the capture has no window content and OCR finds no text.
+
 ## Configuration
 
 Settings and the CLI share the same `defaults` preferences. Test Connection sends a fixed probe to the endpoint in the form.
@@ -62,7 +70,7 @@ Settings and the CLI share the same `defaults` preferences. Test Connection send
 |---|---|
 | API key | `defaults write com.dsh.AskAI apiKey sk-xxx` |
 | Model | `defaults write com.dsh.AskAI model deepseek-chat` |
-| Endpoint | `defaults write com.dsh.AskAI baseURL "https://api.openai.com/v1/chat/completions"` (must be a full `https://` URL; an invalid value falls back to the default endpoint and `--check` prints a warning) |
+| Endpoint | `defaults write com.dsh.AskAI baseURL "https://api.openai.com/v1/chat/completions"` (a full `http://` or `https://` URL — `http` for an endpoint on your own machine; an invalid value falls back to the default endpoint and `--check` prints a warning) |
 | Hotkey | Menu 🤖 → "Set Hotkey…" and press the combination |
 | Mode | Menu 🤖 → "Mode" |
 | Custom modes | Menu 🤖 → "Manage Modes…" (kept in `defaults` as JSON under `customModes`) |
@@ -86,7 +94,7 @@ Two flags are available on the bundled binary (or via `swift run -- --check`):
 
 ### `--check`
 
-Prints what the app actually sees: bundle id, defaults domain, key source, endpoint, model, hotkey,
+Prints what the app actually sees: bundle id, defaults domain, key source, endpoint, model, temperature, hotkey,
 and whether Accessibility is granted. Use it first whenever something does not work.
 
 ```bash
@@ -100,6 +108,7 @@ env ASKAI_KEY    : not set
 defaults apiKey  : set (35 chars)
 precedence       : env ASKAI_KEY > defaults apiKey
 model            : deepseek-chat
+temperature      : 0.3
 endpoint         : https://api.deepseek.com/chat/completions
 hotkey           : ⌘⇧E
 ui language      : en

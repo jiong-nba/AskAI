@@ -36,6 +36,10 @@
 2. 首次启动时，在设置窗选择服务商预设（或填入聊天接口完整地址），再填模型和 API Key（本机 localhost 接口不需要 Key），点「测试连接」，然后保存。之后可从菜单栏 🤖 →「设置…」修改，保存后对下一次查询生效。若下载的是 v1.1.1 或更早版本，可用下方配置表里的命令配置。
 3. 授予辅助功能权限，选中文字后按 **⌘⇧E**。
 
+> 发行包是 ad-hoc 签名、未经公证，首次打开会被 Gatekeeper 拦下。macOS 15 及以后：先试着打开一次，
+> 再到「系统设置 → 隐私与安全性」点「仍要打开」；更早的系统：右键 `AskAI.app` →「打开」。
+> 也可以直接执行 `xattr -dr com.apple.quarantine /Applications/AskAI.app` 去掉隔离标记。
+
 从源码构建需要 Swift 5.9+ 和 Xcode Command Line Tools：
 
 ```bash
@@ -52,6 +56,9 @@ open AskAI.app
 不授权时取词会失败，但会自动降级为截图 OCR（Vision OCR 不需要该权限）。
 原因与解决办法见[签名与授权](#签名与授权为什么授权总失效)。
 
+截图这一步需要「屏幕录制」权限（系统设置 → 隐私与安全性 → 屏幕录制与系统录音）：
+授权之前截到的画面里没有窗口内容，OCR 也就识别不到文字。
+
 ## 配置
 
 原生设置窗与命令行共用 `defaults`。连接测试只向当前填写的接口发送一条固定的测试消息。
@@ -60,7 +67,7 @@ open AskAI.app
 |---|---|
 | API Key | `defaults write com.dsh.AskAI apiKey sk-xxx` |
 | 模型 | `defaults write com.dsh.AskAI model deepseek-chat` |
-| 接口地址 | `defaults write com.dsh.AskAI baseURL "https://api.openai.com/v1/chat/completions"`（须为完整 `https://` 地址；填错时回落默认地址，`--check` 会提示） |
+| 接口地址 | `defaults write com.dsh.AskAI baseURL "https://api.openai.com/v1/chat/completions"`（须为完整的 `http://` 或 `https://` 地址，本机接口用 http；填错时回落默认地址，`--check` 会提示） |
 | 快捷键 | 菜单 🤖 →「设置快捷键…」按键录制 |
 | 模式 | 菜单 🤖 →「模式」 |
 | 自定义模式 | 菜单 🤖 →「自定义模式…」（以 JSON 存在 `defaults` 的 `customModes` 里） |
@@ -80,11 +87,25 @@ open AskAI.app
 
 ### `--check`
 
-打印 App 实际读到的配置：bundle id、defaults 域、Key 来源、接口、模型、快捷键、辅助功能授权状态。
+打印 App 实际读到的配置：bundle id、defaults 域、Key 来源、接口、模型、temperature、快捷键、辅助功能授权状态。
 出问题时先跑它。
 
 ```bash
 ./AskAI.app/Contents/MacOS/AskAI --check
+```
+
+```
+bundle id        : com.dsh.AskAI
+defaults 域     : com.dsh.AskAI
+env ASKAI_KEY    : 未设置
+defaults apiKey  : 已设置 (35 chars)
+优先级           : env ASKAI_KEY > defaults apiKey
+生效模型         : deepseek-chat
+temperature      : 0.3
+接口地址         : https://api.deepseek.com/chat/completions
+快捷键           : ⌘⇧E
+界面语言         : zh-CN
+辅助功能授权     : 已授权
 ```
 
 若显示两个来源都「未设置」，而你认为自己配过，说明 App 读的是另一个域——对照 `bundle id` 检查。
