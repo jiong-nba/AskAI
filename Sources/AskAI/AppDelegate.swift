@@ -97,7 +97,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
     @objc private func openModes() {
         if modesWindow == nil {
-            let window = makeModesWindow { [weak self] in self?.refreshMenu() }
+            let window = makeModesWindow { [weak self] in
+                self?.refreshMenu()
+                self?.lastPanel?.refreshModes()
+            }
             window.delegate = self
             window.center()
             modesWindow = window
@@ -133,7 +136,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                     it.target = self
                     it.representedObject = h
                     // 标题只取了开头，完整的原文放在悬停提示里
-                    it.toolTip = h.source.replacingOccurrences(of: "\n", with: " ")
+                    it.toolTip = h.source
+                        .replacingOccurrences(of: "\r\n", with: " ")
+                        .replacingOccurrences(of: "\n", with: " ")
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
                     hist.addItem(it)
                 }
                 hist.addItem(NSMenuItem.separator())
@@ -148,7 +154,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     /// 二十条记录光看前 24 个字分不出来。
     static func historyLabel(_ entry: HistoryEntry, now: Date = Date()) -> String {
         // 追问的条目用「↳ 问题」当标题：它的 source 和前一条相同，看不出区别
-        let text = (entry.question.map { "↳ " + $0 } ?? entry.source).replacingOccurrences(of: "\n", with: " ")
+        let text = (entry.question.map { "↳ " + $0 } ?? entry.source)
+            .replacingOccurrences(of: "\r\n", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let headline = text.count > 24 ? String(text.prefix(24)) + "…" : text
         let detail = historyMode(entry.mode).title + " · " + relativeTime(from: entry.time, now: now)
         return appIsChinese ? "\(headline)（\(detail)）" : "\(headline)  (\(detail))"

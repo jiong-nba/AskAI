@@ -207,6 +207,66 @@ struct ResultPanelTests {
         #expect(try answerView(of: panel).string == expected)
     }
 
+    // Copy gives visual feedback on the button itself (instead of an error beep), and closing
+    // cancels any pending feedback timer cleanly.
+    @Test @MainActor func copyUpdatesButtonTitleForVisualFeedback() throws {
+        _ = NSApplication.shared
+        let board = isolatedPasteboard()
+        defer { board.releaseGlobally() }
+        let panel = ResultPanel(source: "idempotency", pasteboard: board, defaults: InMemoryDefaults()) { _, _, _, _, _, _ in "x" }
+        defer { panel.close() }
+        panel.show(HistoryEntry(time: Date(), mode: "explain", source: "idempotency", answer: "answer"))
+        let content = try #require(panel.contentView)
+        let copy = try #require(descendants(content)
+            .compactMap { $0 as? NSButton }.first { $0.title == L("复制", "Copy") })
+
+        #expect(panel.performKeyEquivalent(with: try copyEvent(for: panel)))
+        #expect(board.string(forType: .string) == "answer")
+        #expect(copy.title == L("已复制 ✓", "Copied ✓"))
+    }
+
+    // showNearMouse and refreshModes must honor the panel's injected defaults rather than .standard.
+    @Test @MainActor func showNearMouseAndRefreshModesUseInjectedDefaults() throws {
+        _ = NSApplication.shared
+        guard let main = NSScreen.main else { return }
+        let defaults = InMemoryDefaults()
+        defaults.set(700, forKey: "panelWidth")
+        defaults.set(360, forKey: "panelHeight")
+        let board = isolatedPasteboard()
+        defer { board.releaseGlobally() }
+        let panel = ResultPanel(source: "idempotency", pasteboard: board, defaults: defaults) { _, _, _, _, _, _ in "x" }
+        defer { panel.close() }
+        panel.showNearMouse(at: NSPoint(x: main.visibleFrame.midX, y: main.visibleFrame.midY), screens: [main])
+        if main.visibleFrame.width >= 720 {
+            #expect(panel.contentRect(forFrameRect: panel.frame).width == 700)
+        }
+
+        let content = try #require(panel.contentView)
+        let picker = try #require(descendants(content).compactMap { $0 as? NSPopUpButton }.first)
+        picker.selectItem(at: 1) // translate
+        let previousKey = picker.selectedItem?.representedObject as? String
+        let added = CustomMode.make(title: "润色", system: "Polish the text.")
+        CustomModes.save([added], defaults: defaults)
+        panel.refreshModes()
+        #expect(picker.itemArray.contains { ($0.representedObject as? String) == added.key })
+        #expect(picker.selectedItem?.representedObject as? String == previousKey)
+    }
+
+    // Opening a history entry also focuses the follow-up field so the user can type or press Esc immediately.
+    @Test @MainActor func showingHistoryFocusesFollowUpField() throws {
+        _ = NSApplication.shared
+        let board = isolatedPasteboard()
+        defer { board.releaseGlobally() }
+        let panel = ResultPanel(source: "idempotency", pasteboard: board, defaults: InMemoryDefaults()) { _, _, _, _, _, _ in "x" }
+        defer { panel.close() }
+        panel.makeKeyAndOrderFront(nil)
+        panel.show(HistoryEntry(time: Date(), mode: "explain", source: "idempotency", answer: "old"))
+        let content = try #require(panel.contentView)
+        let field = try #require(descendants(content)
+            .compactMap { $0 as? NSTextField }.first { $0.isEditable })
+        #expect(field.currentEditor() != nil || panel.firstResponder === field)
+    }
+
     // Caps Lock and Fn are state, not part of the shortcut: ⌘C must still copy while they are on.
     @Test @MainActor func commandCStillCopiesWithCapsLockOn() throws {
         _ = NSApplication.shared
