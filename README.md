@@ -25,7 +25,7 @@ Native Swift menu-bar app with no Dock icon.
 - **Follow-up questions** — type a question at the bottom of the panel and press Return; earlier turns are sent back as context (the last 8). Follow-up answers go to history with their question, marked `↳`
 - **Stop / Retry** — stop a running answer and keep what has arrived; after a stop or an error, retry with one click
 - **Resizable** — drag to resize the result panel; the size is remembered, and pulled back on screen when it no longer fits the display in use
-- **Markdown rendering** — bold, italic, inline code and links in answers are rendered (block syntax shown verbatim)
+- **Markdown rendering** — bold, italic, inline code and links in answers are rendered; fenced code blocks are shown in a monospaced font (other block syntax is shown verbatim)
 - **Reasoning models** — the thinking trace (reasoning_content, e.g. deepseek-reasoner) streams above the answer; history and copy keep the final answer
 - **Custom hotkey** — record it right in the menu; the recorder tells you when another app already uses the combination
 - **Any OpenAI-compatible endpoint** — DeepSeek, OpenAI, Ollama, etc. Settings offers the common addresses as presets, and endpoints on `localhost` need no API key
