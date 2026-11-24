@@ -116,12 +116,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 hist.addItem(empty)
             } else {
                 for h in list {
-                    // 追问的条目用「↳ 问题」当标题：它的 source 和前一条相同，看不出区别
-                    let t = (h.question.map { "↳ " + $0 } ?? h.source).replacingOccurrences(of: "\n", with: " ")
-                    let label = t.count > 24 ? String(t.prefix(24)) + "…" : t
-                    let it = NSMenuItem(title: label, action: #selector(showHistory(_:)), keyEquivalent: "")
+                    let it = NSMenuItem(title: Self.historyLabel(h), action: #selector(showHistory(_:)), keyEquivalent: "")
                     it.target = self
                     it.representedObject = h
+                    // 标题只取了开头，完整的原文放在悬停提示里
+                    it.toolTip = h.source.replacingOccurrences(of: "\n", with: " ")
                     hist.addItem(it)
                 }
                 hist.addItem(NSMenuItem.separator())
@@ -130,6 +129,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 hist.addItem(clear)
             }
         }
+    }
+
+    /// 历史子菜单里一条记录的标题：原文的开头（追问则是「↳ 问题」），后面跟上模式和相对时间——
+    /// 二十条记录光看前 24 个字分不出来。
+    static func historyLabel(_ entry: HistoryEntry, now: Date = Date()) -> String {
+        // 追问的条目用「↳ 问题」当标题：它的 source 和前一条相同，看不出区别
+        let text = (entry.question.map { "↳ " + $0 } ?? entry.source).replacingOccurrences(of: "\n", with: " ")
+        let headline = text.count > 24 ? String(text.prefix(24)) + "…" : text
+        let detail = historyMode(entry.mode).title + " · " + relativeTime(from: entry.time, now: now)
+        return appIsChinese ? "\(headline)（\(detail)）" : "\(headline)  (\(detail))"
     }
 
     @objc private func selectMode(_ sender: NSMenuItem) {
