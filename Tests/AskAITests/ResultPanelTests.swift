@@ -27,8 +27,7 @@ private func copyEvent(for panel: ResultPanel, flags: NSEvent.ModifierFlags = .c
         characters: "c", charactersIgnoringModifiers: "c", isARepeat: false, keyCode: 8))
 }
 
-// Serialized: these tests share NSApplication, and a finished request consumes a process-wide
-// HistoryNotice, so a parallel test could swallow the notice another one is waiting for.
+// Serialized: these tests share NSApplication.
 @Suite(.serialized)
 struct ResultPanelTests {
     @Test @MainActor func settingsWindowOpensAtFormSize() throws {
@@ -311,11 +310,13 @@ struct ResultPanelTests {
         _ = NSApplication.shared
         let board = isolatedPasteboard()
         defer { board.releaseGlobally() }
-        let panel = ResultPanel(source: "idempotency", pasteboard: board) { _, _, _, _, delta, _ in
+        // Its own notice channel: the shared one races with the other suites, which run in parallel.
+        let notices = HistoryNotice()
+        let panel = ResultPanel(source: "idempotency", pasteboard: board, notice: notices) { _, _, _, _, delta, _ in
             await delta?("answer")
             return "answer"
         } save: { _, _, _, _, _ in
-            HistoryNotice.shared.post("history.json was moved aside")
+            notices.post("history.json was moved aside")
         }
         defer { panel.close() }
         await panel.request(connection: fixtureConnection, mode: historyMode("explain"))?.value
@@ -323,7 +324,7 @@ struct ResultPanelTests {
         #expect(try answerView(of: panel).string == "answer\n\n⚠️ history.json was moved aside")
         #expect(panel.performKeyEquivalent(with: try copyEvent(for: panel)))
         #expect(board.string(forType: .string) == "answer")
-        #expect(HistoryNotice.shared.take() == nil)   // shown once, then consumed
+        #expect(notices.take() == nil)   // shown once, then consumed
     }
 
     @Test @MainActor func answerUsesDynamicTextColorForDarkMode() throws {

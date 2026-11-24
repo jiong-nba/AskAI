@@ -34,6 +34,7 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
     private let send: Send
     private let save: Save
     private let pasteboard: NSPasteboard
+    private let historyNotice: HistoryNotice   // 写历史时产生的提示从这里取；测试传自己的实例
     private let modePicker = NSPopUpButton()
     private let rangeLabel = NSTextField(labelWithString: "")
     private let fullButton = NSButton()
@@ -86,6 +87,7 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
 
     /// defaults 只用来读记住的窗口尺寸；测试传内存实现，免得碰进程的真实域。
     init(source: String, pasteboard: NSPasteboard = .general, defaults: UserDefaults = .standard,
+         notice: HistoryNotice = .shared,
          send: @escaping Send = { try await askLLM($0, mode: $1, connection: $2, context: $3, onDelta: $4, onReasoning: $5) },
          save: @escaping Save = appendHistory) {
         self.source = source
@@ -93,6 +95,7 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
         self.send = send
         self.save = save
         self.pasteboard = pasteboard
+        self.historyNotice = notice
         super.init(contentRect: NSRect(origin: .zero, size: Self.panelSize(visible: NSScreen.main?.visibleFrame, defaults: defaults)),
                    styleMask: [.titled, .closable, .nonactivatingPanel], backing: .buffered, defer: false)
         isReleasedWhenClosed = false
@@ -278,14 +281,14 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
                 pendingQuestion = nil
                 render()
                 // Accept completion on the main actor before handing persistence to the file lock.
-                let (save, source) = (self.save, self.source)
+                let (save, source, notices) = (self.save, self.source, historyNotice)
                 let savedQuestion = question
                 await Task.detached {
                     do { try save(mode.key, source, answer, savedQuestion == nil ? input.sent : nil, savedQuestion) }
                     catch { NSLog("AskAI: failed to save history: \(error.localizedDescription)") }
                 }.value
                 // 写历史时发现 history.json 读不出来并已挪开重建：在正文下方说明
-                guard requestID == id, let message = HistoryNotice.shared.take() else { return }
+                guard requestID == id, let message = notices.take() else { return }
                 notice = message
                 render()
             } catch {
