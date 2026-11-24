@@ -143,6 +143,20 @@ announced in Chinese.
 of a later commit. Do not use `--clobber` on a published release to swap binaries: if the source moved on,
 cut a new version instead. Keep the tag message and release notes stating which source the asset was built from.
 
+**Packaging the zip.** In that worktree, `ASKAI_SIGN_ID=- ./make-app.sh` builds and ad-hoc signs `AskAI.app`.
+Then:
+
+```bash
+ditto -c -k --norsrc --noextattr --noqtn --keepParent AskAI.app AskAI-vX.Y.Z-macos-arm64.zip
+```
+
+The three flags matter. Files built on a recent macOS carry a `com.apple.provenance` xattr, and plain `ditto`
+stores each one as a `._name` file inside the bundle; command-line unzippers leave those in place and the
+signature no longer verifies. Before publishing, unzip into a scratch directory and check that the archive has
+7 entries and nothing starting with `._` or under `__MACOSX`, that `codesign --verify --strict --deep` passes,
+and that the version in `Info.plist` matches. Create the release as a draft first, download the asset back and
+compare its SHA-256 with the local file and with the notes, then publish.
+
 ## Out of scope
 
 - App Store distribution (needs sandboxing and would break ⌘C simulation)
