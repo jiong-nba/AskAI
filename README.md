@@ -22,7 +22,7 @@ Native Swift menu-bar app with no Dock icon.
 - **Read aloud** — system TTS, picks a Chinese or English voice automatically; reads the answers of all turns without Markdown symbols
 - **Copy result** — press ⌘C in the panel (or click Copy) to copy the whole conversation as Markdown source, without the reasoning trace; with text selected, ⌘C copies the selection
 - **Near the cursor** — the panel opens next to the selection instead of screen center
-- **Follow-up questions** — type a question at the bottom of the panel and press Return; earlier turns are sent back as context (the last 8). Follow-up answers go to history with their question, marked `↳`
+- **Follow-up questions** — type a question at the bottom of the panel and press Return; earlier turns are sent back as context (the last 8). When the answer finishes, the follow-up field takes keyboard focus so you can keep typing without clicking. Follow-up answers go to history with their question, marked `↳`
 - **Stop / Retry** — stop a running answer and keep what has arrived; after a stop or an error, retry with one click
 - **Resizable** — drag to resize the result panel; the size is remembered, and pulled back on screen when it no longer fits the display in use
 - **Markdown rendering** — bold, italic, inline code and links in answers are rendered; fenced code blocks are shown in a monospaced font (other block syntax is shown verbatim)
@@ -196,7 +196,7 @@ tccutil reset Accessibility com.dsh.AskAI
 | Read selection | Read the Accessibility selection first. Fall back to ⌘C, wait for a pasteboard change, then restore the previous clipboard |
 | Screenshot OCR | `screencapture -i` + Vision framework |
 | Streaming | `URLSession.bytes` + SSE line parsing |
-| Floating window | non-activating `NSPanel` shown near the cursor; close with ✕, or with Esc while the panel has the focus (Esc pressed inside another app leaves it open) |
+| Floating window | non-activating `NSPanel` shown near the cursor. Closing: click ✕, or press Esc whenever the panel has keyboard focus — including while the follow-up field is focused (Esc inside another app leaves the panel open) |
 | Speech | `AVSpeechSynthesizer` |
 
 ## Limitations

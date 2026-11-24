@@ -171,6 +171,42 @@ struct FollowUpTests {
         #expect(try answerView(in: panel).string == "answer 3")
     }
 
+    // The point of the follow-up field: when the answer completes it takes keyboard focus, so the
+    // next question can be typed without clicking into the panel first.
+    @Test @MainActor func theFollowUpFieldTakesFocusWhenTheAnswerCompletes() async throws {
+        _ = NSApplication.shared
+        let panel = ResultPanel(source: "idempotency", pasteboard: .withUniqueName(), send: { _, _, _, _, delta, _ in
+            await delta?("answer")
+            return "answer"
+        }, save: { _, _, _, _, _ in })
+        defer { panel.close() }
+        panel.makeKeyAndOrderFront(nil)
+        await panel.request(connection: fixtureConnection, mode: historyMode("explain"))?.value
+
+        let field = try questionField(in: panel)
+        #expect(field.isEnabled)
+        // While the field is focused, the window's first responder is its field editor.
+        #expect(field.currentEditor() != nil || panel.firstResponder === field)
+    }
+
+    // The Esc rule has no exception for the field: whenever the panel has keyboard focus, Esc closes
+    // it — the text system delivers Esc here as cancelOperation:.
+    @Test @MainActor func escWhileTypingAFollowUpClosesThePanel() async throws {
+        _ = NSApplication.shared
+        let panel = ResultPanel(source: "idempotency", pasteboard: .withUniqueName(), send: { _, _, _, _, delta, _ in
+            await delta?("answer")
+            return "answer"
+        }, save: { _, _, _, _, _ in })
+        defer { panel.close() }
+        await panel.request(connection: fixtureConnection, mode: historyMode("explain"))?.value
+        let field = try questionField(in: panel)
+        field.stringValue = "a draft the user was typing"
+        panel.makeKeyAndOrderFront(nil)
+        #expect(panel.isVisible)
+        #expect(panel.control(field, textView: NSTextView(), doCommandBy: #selector(NSResponder.cancelOperation(_:))))
+        #expect(!panel.isVisible)
+    }
+
     // History entries written before follow-ups existed have no "question"; new follow-up entries keep theirs.
     @Test func historyEntriesWithAndWithoutAQuestionDecode() throws {
         let legacy = Data(#"[{"time":0,"mode":"explain","source":"s","answer":"a"}]"#.utf8)
