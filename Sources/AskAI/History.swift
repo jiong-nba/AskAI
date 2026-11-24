@@ -11,6 +11,31 @@ struct HistoryEntry: Codable, Equatable {
     var question: String? = nil   // 追问的问题；对原文的提问没有这一项，旧版本写出的条目也没有
 }
 
+/// 历史菜单里的相对时间：一天以内用相对说法，更早的给日期。
+func relativeTime(from date: Date, now: Date = Date()) -> String {
+    let elapsed = now.timeIntervalSince(date)
+    let minute: TimeInterval = 60, hour: TimeInterval = 3_600, day: TimeInterval = 86_400
+    switch elapsed {
+    case ..<minute:   // 时钟略有偏差时 elapsed 可能是负的，也算「刚刚」
+        return L("刚刚", "just now")
+    case ..<hour:
+        let minutes = Int(elapsed / minute)
+        return L("\(minutes) 分钟前", "\(minutes) min ago")
+    case ..<day:
+        let hours = Int(elapsed / hour)
+        return L("\(hours) 小时前", "\(hours) h ago")
+    case ..<(2 * day):
+        return L("昨天", "yesterday")
+    default:
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: appIsChinese ? "zh_CN" : "en_US")
+        formatter.dateFormat = elapsed < 365 * day
+            ? (appIsChinese ? "M月d日" : "MMM d")
+            : (appIsChinese ? "yyyy年M月d日" : "MMM d, yyyy")
+        return formatter.string(from: date)
+    }
+}
+
 let historyKey = "history"
 let historyLimit = 20
 

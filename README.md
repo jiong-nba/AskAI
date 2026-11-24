@@ -18,7 +18,7 @@ Native Swift menu-bar app with no Dock icon.
   If a stream is interrupted, the panel keeps the partial answer and shows the error. Only completed answers enter history.
 - **Four modes** — Explain / Translate / Summarize / Explain Code — choose a default in the menu bar, or rerun the same selection in a different mode from a result or history window. Switching cancels the previous request and starts a fresh conversation.
 - **Screenshot OCR** — if no text can be read from the selection, it falls back to a screen-region capture and Vision OCR
-- **History** — last 20 entries, reopen any from the menu
+- **History** — last 20 entries, reopen any from the menu; each entry is listed with its mode and age, and shows the full text on hover
 - **Read aloud** — system TTS, picks a Chinese or English voice automatically; reads the answers of all turns without Markdown symbols
 - **Copy result** — press ⌘C in the panel (or click Copy) to copy the whole conversation as Markdown source, without the reasoning trace; with text selected, ⌘C copies the selection
 - **Near the cursor** — the panel opens next to the selection instead of screen center
