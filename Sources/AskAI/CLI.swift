@@ -19,6 +19,8 @@ func runCheck() -> Never {
     print("defaults apiKey  : " + status(defaultsKey))
     print(L("优先级           : env ASKAI_KEY > defaults apiKey", "precedence       : env ASKAI_KEY > defaults apiKey"))
     print(L("生效模型         : ", "model            : ") + connection.model)
+    print(L("temperature     : ", "temperature      : ")
+          + (connection.temperature.map { "\($0)" } ?? L("不发送（用服务商默认值）", "not sent (provider default)")))
     print(L("接口地址         : ", "endpoint         : ") + connection.url.absoluteString)
     if let bad = defaults.string(forKey: "baseURL"), ConnectionSettings.storedEndpoint(bad) == nil {
         print(L("⚠️ baseURL 配置「\(bad)」无效（应为完整 https:// 地址），已回落默认地址",

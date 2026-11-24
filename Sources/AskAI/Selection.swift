@@ -99,9 +99,17 @@ func selectedText(focusedPID: @MainActor () -> pid_t? = focusedAccessibleApp,
     return try await copy(pid)
 }
 
+/// 模拟 ⌘C 之后等剪贴板变化多久。默认 350ms。目标应用响应慢（Electron 应用里的大段选区等）时
+/// 可以调大：defaults write com.dsh.AskAI copyTimeoutMs 800。等不到的话会落到截图流程，
+/// 而迟到的复制会覆盖剪贴板，所以慢的机器上宁可多等一会。
+func copyTimeout(defaults: UserDefaults = .standard) -> Duration {
+    let milliseconds = defaults.object(forKey: "copyTimeoutMs") as? Int ?? 350
+    return .milliseconds(min(max(milliseconds, 100), 5_000))
+}
+
 @MainActor
 private func copyFromApp(_ pid: pid_t) async throws -> String? {
-    return try await copiedSelection(from: .general, stillFocused: {
+    return try await copiedSelection(from: .general, timeout: copyTimeout(), stillFocused: {
         NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
     }) {
         let source = CGEventSource(stateID: .combinedSessionState)

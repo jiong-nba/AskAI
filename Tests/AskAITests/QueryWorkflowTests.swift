@@ -44,6 +44,36 @@ private func echoSession() -> URLSession {
     return URLSession(configuration: config)
 }
 
+/// Reports the sampling parameters the client sent, as the answer itself.
+private final class ParamsEchoAPI: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        do {
+            var data = Data()
+            if let stream = request.httpBodyStream {
+                stream.open()
+                defer { stream.close() }
+                var buffer = [UInt8](repeating: 0, count: 4096)
+                while true {
+                    let n = stream.read(&buffer, maxLength: buffer.count)
+                    guard n > 0 else { break }
+                    data.append(contentsOf: buffer.prefix(n))
+                }
+            }
+            let body = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            let report = "temperature=" + (body?["temperature"].map { "\($0)" } ?? "absent")
+            let url = try #require(request.url)
+            let response = try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+            let reply = try JSONSerialization.data(withJSONObject: ["choices": [["message": ["content": report]]]])
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: reply)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch { client?.urlProtocol(self, didFailWithError: error) }
+    }
+    override func stopLoading() {}
+}
+
 struct QueryWorkflowTests {
     @Test func previewAndFullSummaryReachTheWire() async throws {
         let text = String(repeating: "甲", count: 2995) + "结论：乙。"
@@ -183,5 +213,53 @@ struct QueryWorkflowTests {
         }) {}
         #expect(selection == "late selection")
         #expect(board.string(forType: .string) == "original")   // the backup was restored afterwards
+    }
+
+    // OpenAI's reasoning models reject any temperature but the default, so it must be possible to
+    // leave the parameter out; everyone else keeps 0.3 as before.
+    @Test func temperatureIsSentUnlessConfiguredNegative() async throws {
+        let suite = "AskAI-test-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [ParamsEchoAPI.self]
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+        func ask() async throws -> String {
+            try await askLLM(QueryInput(preview: "q"), mode: historyMode("explain"),
+                             connection: ConnectionSettings.current(defaults: defaults, environmentKey: "fixture-key"),
+                             session: session)
+        }
+        #expect(try await ask() == "temperature=0.3")
+        defaults.set(-1, forKey: "temperature")
+        #expect(try await ask() == "temperature=absent")
+        defaults.set(0.9, forKey: "temperature")
+        #expect(try await ask() == "temperature=0.9")
+
+        var draft = ConnectionDraft(defaults: defaults)
+        #expect(draft.temperature == "0.9")
+        draft.savedKey = "fixture-key"
+        draft.temperature = " -1 "
+        #expect(try draft.connection(environmentKey: nil).temperature == nil)
+        for invalid in ["3", "-2.5", "abc", ""] {
+            draft.temperature = invalid
+            #expect(throws: AskError.self) { try draft.connection(environmentKey: nil) }
+        }
+        draft.temperature = "-1"
+        try draft.save(to: defaults, environmentKey: nil)
+        #expect(ConnectionSettings.current(defaults: defaults, environmentKey: nil).temperature == nil)
+    }
+
+    @Test func copyTimeoutIsConfigurableWithinBounds() throws {
+        let suite = "AskAI-test-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        #expect(copyTimeout(defaults: defaults) == .milliseconds(350))
+        defaults.set(800, forKey: "copyTimeoutMs")
+        #expect(copyTimeout(defaults: defaults) == .milliseconds(800))
+        defaults.set(10, forKey: "copyTimeoutMs")
+        #expect(copyTimeout(defaults: defaults) == .milliseconds(100))
+        defaults.set(999_999, forKey: "copyTimeoutMs")
+        #expect(copyTimeout(defaults: defaults) == .milliseconds(5_000))
     }
 }

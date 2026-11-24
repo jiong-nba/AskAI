@@ -16,7 +16,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var recording = false
     private var settingsWindow: NSWindow?
     private var lastPanel: ResultPanel?        // 记住上一个结果窗，新结果出来时先关掉
-    private var escMonitor: Any?           // 结果窗显示期间监听全局 Esc，保证一定能关
 
     private var hotkeyDesc: String { defaults.string(forKey: "hotkeyDesc") ?? "⌘⇧E" }
 
@@ -261,7 +260,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         lastPanel = panel
         panel.showNearMouse()
         panel.makeKeyAndOrderFront(nil)
-        startEscMonitor()
         return panel
     }
 
@@ -367,19 +365,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
     // MARK: 结果窗的生命周期
 
-    /// 全局监听 Esc：结果窗不一定是 key window，用系统级监听兜底，保证一定能关。
-    private func startEscMonitor() {
-        guard escMonitor == nil else { return }
-        escMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard event.keyCode == UInt16(kVK_Escape) else { return }
-            DispatchQueue.main.async { self?.lastPanel?.close() }
-        }
-    }
-
-    private func stopEscMonitor() {
-        if let m = escMonitor { NSEvent.removeMonitor(m); escMonitor = nil }
-    }
-
     /// 用户拖拽结束后记住浮窗尺寸，下次打开沿用
     func windowDidEndLiveResize(_ notification: Notification) {
         guard let panel = notification.object as? ResultPanel else { return }
@@ -399,7 +384,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             recorderPanel = nil
         }
         if window === lastPanel {
-            stopEscMonitor()
             lastPanel = nil
         }
     }
