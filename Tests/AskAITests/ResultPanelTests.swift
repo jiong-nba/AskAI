@@ -47,7 +47,7 @@ struct ResultPanelTests {
         let (stale, signalStale) = AsyncStream<Bool>.makeStream()
         let (saved, signalSave) = AsyncStream<HistoryEntry>.makeStream()
         let defaultMode = currentMode().key
-        let panel = ResultPanel(source: source) { input, mode, _, delta, _ in
+        let panel = ResultPanel(source: source) { input, mode, _, _, delta, _ in
             if mode.key == "translate" {
                 signalStart.yield(())
                 do { try await Task.sleep(for: .seconds(10)) } catch {}
@@ -60,7 +60,7 @@ struct ResultPanelTests {
             #expect(input.message == source)
             await delta?("new")
             return "new"
-        } save: { mode, original, answer, count in
+        } save: { mode, original, answer, count, _ in
             signalSave.yield(HistoryEntry(time: Date(), mode: mode, source: original, answer: answer, sentCharacters: count))
         }
         defer { panel.close(); signalStart.finish(); signalStale.finish(); signalSave.finish() }
@@ -141,7 +141,7 @@ struct ResultPanelTests {
         defer { suite.removePersistentDomain(forName: name) }
         let board = NSPasteboard.withUniqueName()
         defer { board.releaseGlobally() }
-        let panel = ResultPanel(source: "idempotency", pasteboard: board) { _, _, _, _, _ in "x" }
+        let panel = ResultPanel(source: "idempotency", pasteboard: board) { _, _, _, _, _, _ in "x" }
         defer { panel.close() }
         panel.setContentSize(NSSize(width: 700, height: 400))
         #expect(panel.frame.height > 400)   // a titled window is taller than its content
@@ -161,7 +161,7 @@ struct ResultPanelTests {
         standard.set(5_000, forKey: "panelWidth")
         let board = NSPasteboard.withUniqueName()
         defer { board.releaseGlobally() }
-        let panel = ResultPanel(source: "idempotency", pasteboard: board) { _, _, _, _, _ in "x" }
+        let panel = ResultPanel(source: "idempotency", pasteboard: board) { _, _, _, _, _, _ in "x" }
         defer { panel.close() }
 
         panel.showNearMouse()
@@ -181,7 +181,7 @@ struct ResultPanelTests {
         _ = NSApplication.shared
         let board = isolatedPasteboard()
         defer { board.releaseGlobally() }
-        let panel = ResultPanel(source: "idempotency", pasteboard: board) { _, _, _, _, _ in "answer" }
+        let panel = ResultPanel(source: "idempotency", pasteboard: board) { _, _, _, _, _, _ in "answer" }
         defer { panel.close() }
         panel.show(HistoryEntry(time: Date(), mode: "explain", source: "idempotency", answer: "answer"))
         try answerView(of: panel).setSelectedRange(NSRange(location: 0, length: 0))
@@ -226,7 +226,7 @@ struct ResultPanelTests {
         _ = NSApplication.shared
         let board = isolatedPasteboard()
         defer { board.releaseGlobally() }
-        let panel = ResultPanel(source: "idempotency", pasteboard: board) { _, _, _, _, _ in "答案文本" }
+        let panel = ResultPanel(source: "idempotency", pasteboard: board) { _, _, _, _, _, _ in "答案文本" }
         defer { panel.close() }
         panel.show(HistoryEntry(time: Date(), mode: "explain", source: "idempotency", answer: "答案文本"))
         try answerView(of: panel).setSelectedRange(NSRange(location: 0, length: 0))
@@ -237,7 +237,7 @@ struct ResultPanelTests {
 
     @Test @MainActor func commandCLeavesSelectionToSystem() throws {
         _ = NSApplication.shared
-        let panel = ResultPanel(source: "idempotency") { _, _, _, _, _ in "答案文本" }
+        let panel = ResultPanel(source: "idempotency") { _, _, _, _, _, _ in "答案文本" }
         defer { panel.close() }
         panel.show(HistoryEntry(time: Date(), mode: "explain", source: "idempotency", answer: "答案文本"))
         try answerView(of: panel).setSelectedRange(NSRange(location: 0, length: 2))
@@ -252,11 +252,11 @@ struct ResultPanelTests {
         struct StreamFailed: Error {}
         let board = isolatedPasteboard()
         defer { board.releaseGlobally() }
-        let panel = ResultPanel(source: "idempotency", pasteboard: board) { _, _, _, delta, reasoning in
+        let panel = ResultPanel(source: "idempotency", pasteboard: board) { _, _, _, _, delta, reasoning in
             await reasoning?("thinking about it")
             _ = delta
             throw StreamFailed()
-        } save: { _, _, _, _ in
+        } save: { _, _, _, _, _ in
             Issue.record("A failed request must not be saved")
         }
         defer { panel.close() }
@@ -274,11 +274,11 @@ struct ResultPanelTests {
         _ = NSApplication.shared
         let board = isolatedPasteboard()
         defer { board.releaseGlobally() }
-        let panel = ResultPanel(source: "idempotency", pasteboard: board) { _, _, _, delta, reasoning in
+        let panel = ResultPanel(source: "idempotency", pasteboard: board) { _, _, _, _, delta, reasoning in
             await reasoning?("the model's scratchpad")
             await delta?("final answer")
             return "final answer"
-        } save: { _, _, _, _ in }
+        } save: { _, _, _, _, _ in }
         defer { panel.close() }
         await panel.request(mode: historyMode("explain"))?.value
 
@@ -295,10 +295,10 @@ struct ResultPanelTests {
         let board = isolatedPasteboard()
         defer { board.releaseGlobally() }
         let answer = "**bold** `code` [text](https://example.com)"
-        let panel = ResultPanel(source: "idempotency", pasteboard: board) { _, _, _, delta, _ in
+        let panel = ResultPanel(source: "idempotency", pasteboard: board) { _, _, _, _, delta, _ in
             await delta?(answer)
             return answer
-        } save: { _, _, _, _ in }
+        } save: { _, _, _, _, _ in }
         defer { panel.close() }
         await panel.request(mode: historyMode("explain"))?.value
 
@@ -319,10 +319,10 @@ struct ResultPanelTests {
         _ = NSApplication.shared
         let board = isolatedPasteboard()
         defer { board.releaseGlobally() }
-        let panel = ResultPanel(source: "idempotency", pasteboard: board) { _, _, _, delta, _ in
+        let panel = ResultPanel(source: "idempotency", pasteboard: board) { _, _, _, _, delta, _ in
             await delta?("answer")
             return "answer"
-        } save: { _, _, _, _ in
+        } save: { _, _, _, _, _ in
             HistoryNotice.shared.post("history.json was moved aside")
         }
         defer { panel.close() }

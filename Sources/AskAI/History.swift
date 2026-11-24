@@ -8,6 +8,7 @@ struct HistoryEntry: Codable, Equatable {
     let source: String
     let answer: String
     var sentCharacters: Int? = nil
+    var question: String? = nil   // 追问的问题；对原文的提问没有这一项，旧版本写出的条目也没有
 }
 
 let historyKey = "history"
@@ -128,12 +129,13 @@ func clearHistoryStorage() {
     }
 }
 
-func appendHistory(mode: String, source: String, answer: String, sentCharacters: Int? = nil) throws {
+func appendHistory(mode: String, source: String, answer: String, sentCharacters: Int? = nil,
+                    question: String? = nil) throws {
     guard !answer.isEmpty, !answer.hasPrefix("❌") else { return }
     try withHistoryLock {
         try migrateLegacyHistoryIfNeeded()
         var list = try readHistoryFile()
-        list.insert(HistoryEntry(time: Date(), mode: mode, source: source, answer: answer, sentCharacters: sentCharacters), at: 0)
+        list.insert(HistoryEntry(time: Date(), mode: mode, source: source, answer: answer, sentCharacters: sentCharacters, question: question), at: 0)
         try saveHistory(list)
     }
 }
