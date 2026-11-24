@@ -283,6 +283,7 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
                 streaming = ""
                 pendingQuestion = nil
                 render()
+                focusQuestionField()
                 // Accept completion on the main actor before handing persistence to the file lock.
                 let (save, source, notices) = (self.save, self.source, historyNotice)
                 let savedQuestion = question
@@ -299,6 +300,7 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
                 awaiting = false
                 render(status: streaming.isEmpty ? "❌ \(error.localizedDescription)"
                     : "⚠️ " + L("回答中断", "Answer interrupted") + " — " + error.localizedDescription)
+                focusQuestionField()
             }
         }
         return running
@@ -317,6 +319,7 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
         cancelRequest()   // requestID 换新之后，后台任务的收尾不会再碰界面
         awaiting = false
         render(status: "⏹ " + L("已停止生成", "Generation stopped"))
+        focusQuestionField()
     }
 
     /// 在途（或被停止）的那一轮；没有就是 nil。
@@ -508,8 +511,21 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate {
         return flags == .command && characters?.lowercased() == "c" && answerSelection == 0 && fieldSelection == 0
     }
 
-    /// 追问输入框里的回车就是发送。
+    /// 回答结束后把键盘焦点交给追问框，接着输入就行，不用再点一下。
+    /// 浮窗是非激活面板，成为 key window 也不会把别的应用切到前台；若焦点此刻在别的应用手里，
+    /// 这只是在浮窗内预设 first responder，不会抢走那边正在输入的内容。
+    private func focusQuestionField() {
+        guard isVisible else { return }
+        makeFirstResponder(questionField)
+    }
+
+    /// 追问输入框里的回车就是发送；Esc 在这里也会被文本系统以 cancelOperation: 送进来，
+    /// 统一成一个规则：浮窗获得键盘焦点后，按 Esc 就关闭——焦点在追问框里也不例外。
     func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
+            close()
+            return true
+        }
         guard commandSelector == #selector(NSResponder.insertNewline(_:)) else { return false }
         sendFollowUp()
         return true
