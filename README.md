@@ -192,7 +192,7 @@ tccutil reset Accessibility com.dsh.AskAI
 
 | Step | Implementation |
 |---|---|
-| Global hotkey | [HotKey](https://github.com/soffes/HotKey) |
+| Global hotkey | Carbon `RegisterEventHotKey` |
 | Read selection | Read the Accessibility selection first. Fall back to ⌘C, wait for a pasteboard change, then restore the previous clipboard |
 | Screenshot OCR | `screencapture -i` + Vision framework |
 | Streaming | `URLSession.bytes` + SSE line parsing |

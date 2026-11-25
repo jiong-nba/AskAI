@@ -13,19 +13,19 @@ OpenAI-compatible endpoint, and streams the answer into a floating panel. CLI re
 Sources/AskAI/main.swift              # process entry: CLI dispatch, then the menu-bar run loop
 Sources/AskAI/AppDelegate.swift       # menu, hotkey recorder, panel and settings-window lifecycle
 Sources/AskAI/CLI.swift               # --check and --ask
-Sources/AskAI/Preferences.swift       # the shared `defaults` instance
+Sources/AskAI/Preferences.swift       # shared `defaults`, `AskError`, and string helpers
 Sources/AskAI/Localization.swift      # L(zh, en)
 Sources/AskAI/PromptMode.swift        # built-in prompt modes
-Sources/AskAI/History.swift           # history.json storage and the cross-process lock
-Sources/AskAI/HotKeys.swift           # hotkey defaults and registration
+Sources/AskAI/History.swift           # history.json storage, cache, and cross-process lock
+Sources/AskAI/HotKeys.swift           # hotkey defaults and native Carbon registration
 Sources/AskAI/ChatClient.swift        # chat completions request and SSE stream parsing
 Sources/AskAI/OCR.swift               # region capture and Vision OCR
 Sources/AskAI/Selection.swift         # Accessibility and pasteboard capture
 Sources/AskAI/ResultPanel.swift       # per-selection requests and result controls
 Sources/AskAI/AnswerRenderer.swift    # Markdown → attributed text for the panel, code-block background drawing
-Sources/AskAI/ConnectionSettings.swift # live provider configuration and native settings
-Sources/AskAI/ModesSettings.swift      # user-defined prompt modes and the window that edits them
-Package.swift              # SwiftPM manifest, depends on HotKey
+Sources/AskAI/ConnectionSettings.swift # live provider configuration and AppKit settings
+Sources/AskAI/ModesSettings.swift      # user-defined prompt modes and the AppKit window that edits them
+Package.swift              # SwiftPM manifest (zero external dependencies)
 make-app.sh                # builds a release binary and assembles AskAI.app (Info.plist + codesign)
 README.md                  # English, primary
 README.zh-CN.md            # Chinese translation — keep in sync
