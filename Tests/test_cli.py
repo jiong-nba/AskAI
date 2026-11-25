@@ -100,6 +100,23 @@ class CLITests(unittest.TestCase):
         self.assertEqual(result.stdout, "")
         self.assertIn("--ask", result.stderr)
 
+    def test_check_reports_hotkeys(self):
+        result = self.cli("--check")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("hotkey           : ⌘⇧E", result.stdout)
+        self.assertIn("direct ask key   : not set", result.stdout)
+        self.assertIn("screen ask key   : not set", result.stdout)
+
+        configured = self.cli(
+            "-directAskHotkeyKey", "2",
+            "-directAskHotkeyMods", str(1 << 20),
+            "-directAskHotkeyDesc", "⌘D",
+            "--check",
+        )
+        self.assertEqual(configured.returncode, 0, configured.stderr)
+        self.assertIn("direct ask key   : ⌘D", configured.stdout)
+        self.assertIn("screen ask key   : not set", configured.stdout)
+
     def test_success(self):
         result = self.ask("fixture answer")
         self.assertEqual(result.returncode, 0, result.stderr)

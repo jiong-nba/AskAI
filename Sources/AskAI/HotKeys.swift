@@ -1,9 +1,67 @@
 import AppKit
 import Carbon
 
-// 快捷键配置（默认 ⌘⇧E；用菜单栏 🤖 →「设置快捷键…」改，自动存进 defaults）
+// 快捷键配置（划词询问默认 ⌘⇧E，直接提问与截图解释默认未设置；
+// 用菜单栏 🤖 →「设置快捷键」子菜单改，自动存进 defaults）
 let defaultHotKeyCode = UInt32(kVK_ANSI_E)
 let defaultHotKeyMods = UInt(NSEvent.ModifierFlags.command.union(.shift).rawValue)
+let defaultHotKeyDesc = "⌘⇧E"
+
+private let supportedHotKeyModifiers: NSEvent.ModifierFlags = [.command, .option, .control, .shift]
+
+struct HotKeyCombo: Equatable, Sendable {
+    let code: UInt32
+    let mods: NSEvent.ModifierFlags
+}
+
+enum HotKeyAction: String, CaseIterable, Sendable {
+    case askSelection
+    case askDirectly
+    case askFromScreen
+
+    var isOptional: Bool { self != .askSelection }
+
+    var keyCodeKey: String {
+        switch self {
+        case .askSelection: return "hotkeyKey"
+        case .askDirectly: return "directAskHotkeyKey"
+        case .askFromScreen: return "screenAskHotkeyKey"
+        }
+    }
+
+    var modsKey: String {
+        switch self {
+        case .askSelection: return "hotkeyMods"
+        case .askDirectly: return "directAskHotkeyMods"
+        case .askFromScreen: return "screenAskHotkeyMods"
+        }
+    }
+
+    var descKey: String {
+        switch self {
+        case .askSelection: return "hotkeyDesc"
+        case .askDirectly: return "directAskHotkeyDesc"
+        case .askFromScreen: return "screenAskHotkeyDesc"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .askSelection: return L("划词询问", "Explain Selection")
+        case .askDirectly: return L("直接提问", "Ask Directly")
+        case .askFromScreen: return L("截图解释", "Explain from Screen")
+        }
+    }
+}
+
+func modifierSymbols(_ mods: NSEvent.ModifierFlags) -> String {
+    var s = ""
+    if mods.contains(.control) { s += "⌃" }
+    if mods.contains(.option) { s += "⌥" }
+    if mods.contains(.shift) { s += "⇧" }
+    if mods.contains(.command) { s += "⌘" }
+    return s
+}
 
 extension NSEvent.ModifierFlags {
     var carbonFlags: UInt32 {
@@ -21,11 +79,71 @@ func isSupportedKeyCode(_ keyCode: UInt32) -> Bool {
     keyCode <= 126 && !(54...63).contains(keyCode)
 }
 
-/// defaults 里当前配置的快捷键。
+private func storedHotKeyInt(forKey key: String, defaults: UserDefaults) -> Int? {
+    if let value = defaults.object(forKey: key) as? Int {
+        return value
+    }
+    if let text = defaults.string(forKey: key) {
+        return Int(text)
+    }
+    return nil
+}
+
+/// defaults 里指定动作当前配置的快捷键；可选动作未设置或配置无效时返回 nil。
+func configuredHotKey(for action: HotKeyAction, defaults: UserDefaults = .standard) -> HotKeyCombo? {
+    if !action.isOptional {
+        let code = storedHotKeyInt(forKey: action.keyCodeKey, defaults: defaults)
+            .flatMap { UInt32(exactly: $0) } ?? defaultHotKeyCode
+        let rawMods = storedHotKeyInt(forKey: action.modsKey, defaults: defaults)
+            .flatMap { UInt(exactly: $0) } ?? defaultHotKeyMods
+        return HotKeyCombo(code: code, mods: NSEvent.ModifierFlags(rawValue: rawMods))
+    }
+    guard let rawCode = storedHotKeyInt(forKey: action.keyCodeKey, defaults: defaults),
+          let rawMods = storedHotKeyInt(forKey: action.modsKey, defaults: defaults),
+          let code = UInt32(exactly: rawCode),
+          let modsValue = UInt(exactly: rawMods) else {
+        return nil
+    }
+    let mods = NSEvent.ModifierFlags(rawValue: modsValue).intersection(supportedHotKeyModifiers)
+    guard isSupportedKeyCode(code), !mods.isEmpty else { return nil }
+    return HotKeyCombo(code: code, mods: mods)
+}
+
+/// defaults 里当前配置的划词询问快捷键。
 func configuredHotKey(defaults: UserDefaults = .standard) -> (code: UInt32, mods: NSEvent.ModifierFlags) {
-    let code = UInt32(defaults.object(forKey: "hotkeyKey") as? Int ?? Int(defaultHotKeyCode))
-    let raw = UInt(defaults.object(forKey: "hotkeyMods") as? Int ?? Int(defaultHotKeyMods))
-    return (code, NSEvent.ModifierFlags(rawValue: raw))
+    let combo = configuredHotKey(for: .askSelection, defaults: defaults)
+        ?? HotKeyCombo(code: defaultHotKeyCode, mods: NSEvent.ModifierFlags(rawValue: defaultHotKeyMods))
+    return (combo.code, combo.mods)
+}
+
+func hotKeyDescription(for action: HotKeyAction, defaults: UserDefaults = .standard) -> String? {
+    if !action.isOptional {
+        if let desc = defaults.string(forKey: action.descKey), !desc.isEmpty { return desc }
+        return defaultHotKeyDesc
+    }
+    guard let combo = configuredHotKey(for: action, defaults: defaults) else { return nil }
+    if let desc = defaults.string(forKey: action.descKey), !desc.isEmpty { return desc }
+    return modifierSymbols(combo.mods) + L("键\(combo.code)", "Key\(combo.code)")
+}
+
+func saveHotKey(_ combo: HotKeyCombo, desc: String, for action: HotKeyAction, defaults: UserDefaults = .standard) {
+    defaults.set(Int(combo.code), forKey: action.keyCodeKey)
+    defaults.set(Int(combo.mods.rawValue), forKey: action.modsKey)
+    defaults.set(desc, forKey: action.descKey)
+}
+
+func clearHotKey(for action: HotKeyAction, defaults: UserDefaults = .standard) {
+    guard action.isOptional else { return }
+    defaults.removeObject(forKey: action.keyCodeKey)
+    defaults.removeObject(forKey: action.modsKey)
+    defaults.removeObject(forKey: action.descKey)
+}
+
+func otherConfiguredHotKeys(excluding action: HotKeyAction, defaults: UserDefaults = .standard) -> [(HotKeyAction, HotKeyCombo)] {
+    HotKeyAction.allCases.compactMap { other in
+        guard other != action, let combo = configuredHotKey(for: other, defaults: defaults) else { return nil }
+        return (other, combo)
+    }
 }
 
 private let hotKeySignature: OSType = 0x41736B48   // 'AskH'
@@ -133,13 +251,19 @@ enum HotKeyRecording: Equatable {
     case unchanged     // 与当前组合相同，现有注册继续有效
     case unsupported   // 不支持的虚拟键码
     case taken         // 已被其他应用占用
+    case usedByOtherAction(HotKeyAction)   // 已被本应用的另一个动作占用
     case accepted
 
     static func outcome(keyCode: UInt32, mods: NSEvent.ModifierFlags,
-                        current: (code: UInt32, mods: NSEvent.ModifierFlags)) -> HotKeyRecording {
+                        current: HotKeyCombo?,
+                        others: [(HotKeyAction, HotKeyCombo)] = []) -> HotKeyRecording {
         guard isSupportedKeyCode(keyCode) else { return .unsupported }
+        let candidate = HotKeyCombo(code: keyCode, mods: mods)
         // 先判“组合没变”再探测占用：探测会把本进程自己的现有注册也算成已占用
-        if keyCode == current.code, mods == current.mods { return .unchanged }
+        if candidate == current { return .unchanged }
+        if let conflict = others.first(where: { $0.1 == candidate }) {
+            return .usedByOtherAction(conflict.0)
+        }
         return hotKeyIsTaken(keyCode: keyCode, mods: mods) ? .taken : .accepted
     }
 }
@@ -152,6 +276,12 @@ final class HotKeySlot {
     private var hotKey: CarbonHotKey?
     private var combo: (code: UInt32, mods: NSEvent.ModifierFlags)?
     private var previousHandler: (@MainActor @Sendable () -> Void)?
+
+    func unbind() {
+        hotKey = nil
+        combo = nil
+        previousHandler = nil
+    }
 
     /// 返回 false 表示没能换绑（被占用或按键不受支持），此时原有绑定保持不变。
     @discardableResult

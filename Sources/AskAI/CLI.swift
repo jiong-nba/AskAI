@@ -26,8 +26,9 @@ func runCheck() -> Never {
         print(L("⚠️ baseURL 配置「\(bad)」无效（应为完整 http:// 或 https:// 地址），已回落默认地址",
                "⚠️ configured baseURL '\(bad)' is invalid (expected a full http:// or https:// URL); using the default"))
     }
-    let hotkeyText = defaults.string(forKey: "hotkeyDesc") ?? "⌘⇧E"
-    print(L("快捷键           : ", "hotkey           : ") + hotkeyText)
+    print(L("快捷键           : ", "hotkey           : ") + (hotKeyDescription(for: .askSelection) ?? defaultHotKeyDesc))
+    print(L("直接提问快捷键   : ", "direct ask key   : ") + (hotKeyDescription(for: .askDirectly) ?? L("未设置", "not set")))
+    print(L("截图解释快捷键   : ", "screen ask key   : ") + (hotKeyDescription(for: .askFromScreen) ?? L("未设置", "not set")))
     print(L("界面语言         : ", "ui language      : ") + (appIsChinese ? "zh-CN" : "en"))
     print(L("辅助功能授权     : ", "accessibility    : ")
           + (AXIsProcessTrusted() ? L("已授权", "granted") : L("未授权（模拟 ⌘C 会失败）", "NOT granted (⌘C simulation will fail)")))
