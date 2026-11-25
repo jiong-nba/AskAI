@@ -57,6 +57,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         setHotkeyItem = setHotkey
         menu.addItem(setHotkey)
 
+        let askDirectlyItem = NSMenuItem(title: L("直接提问…", "Ask Directly…"),
+                                         action: #selector(askDirectly), keyEquivalent: "")
+        askDirectlyItem.target = self
+        menu.addItem(askDirectlyItem)
+
         let shot = NSMenuItem(title: L("截图解释…（图片里的文字）", "Explain from Screen… (text in images)"),
                               action: #selector(askFromScreen), keyEquivalent: "")
         shot.target = self
@@ -266,6 +271,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 }
             } catch { /* Focus changed or capture was cancelled. */ }
         }
+    }
+
+    @objc private func askDirectly() {
+        guard ConnectionSettings.current().isConfigured else { openSettings(); return }
+        let panel = presentResult(source: "")
+        panel.prepareForDirectQuestion(mode: currentMode())
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     /// 截图选区 → OCR → 解释。screencapture 与 Vision OCR 都在后台跑，避免框选期间主线程卡住。

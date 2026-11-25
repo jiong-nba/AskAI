@@ -22,14 +22,22 @@ struct QueryInput {
 }
 
 @MainActor
-final class ResultPanel: NSPanel, NSTextFieldDelegate, AVSpeechSynthesizerDelegate {
+final class ResultPanel: NSPanel, NSTextFieldDelegate, NSTextViewDelegate, AVSpeechSynthesizerDelegate {
     typealias Send = (QueryInput, PromptMode, ConnectionSettings, [ChatTurn], StreamCallback?, StreamCallback?) async throws -> String
     /// 保存历史要等文件锁，放在后台任务里执行，所以必须是 Sendable 闭包。
     typealias Save = @Sendable (String, String, String, Int?, String?) throws -> Void
 
     /// 追问时最多带上的最近轮数：请求体不随对话无限增长
     static let contextLimit = 8
-    private static let answerFont = NSFont.systemFont(ofSize: 14)
+    static let defaultFontSize: CGFloat = 14
+    static let minFontSize: CGFloat = 11
+    static let maxFontSize: CGFloat = 22
+    private static let toggleReasoningURL = URL(string: "askai://toggle-reasoning")!
+
+    static func storedFontSize(defaults: UserDefaults = .standard) -> CGFloat {
+        guard let raw = defaults.object(forKey: "panelFontSize") as? NSNumber else { return defaultFontSize }
+        return min(max(CGFloat(raw.doubleValue), minFontSize), maxFontSize)
+    }
 
     private let source: String
     private let total: Int
@@ -65,6 +73,9 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate, AVSpeechSynthesizerDelega
     private var failure: String?                       // 最近一轮出错或被停止后的状态行；有它就可以重试
     private var answerText = ""                        // 浮窗内容的 Markdown 原文（不含思考过程与状态行）：复制与朗读只用它
     private var latestReasoning = ""                   // 推理模型本次请求的思考过程（仅浮窗展示用）
+    private(set) var isReasoningCollapsed = false
+    private var fontSize: CGFloat
+    private var effectiveSource: String
     private var notice = ""                            // 正文下方的状态说明（如 history.json 被挪开重建），仅显示用
 
     /// 浮窗的内容区尺寸：默认 550×310；拖拽调整后记住（panelWidth/panelHeight）。
@@ -112,6 +123,8 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate, AVSpeechSynthesizerDelega
         self.pasteboard = pasteboard
         self.historyNotice = notice
         self.defaults = defaults
+        self.fontSize = Self.storedFontSize(defaults: defaults)
+        self.effectiveSource = source
         super.init(contentRect: NSRect(origin: .zero, size: Self.panelSize(visible: NSScreen.main?.visibleFrame, defaults: defaults)),
                    styleMask: [.titled, .closable, .nonactivatingPanel], backing: .buffered, defer: false)
         isReleasedWhenClosed = false
@@ -153,8 +166,9 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate, AVSpeechSynthesizerDelega
         textView.isVerticallyResizable = true
         textView.autoresizingMask = [.width]
         textView.textContainer?.widthTracksTextView = true
+        textView.delegate = self
         textView.textContainerInset = NSSize(width: 14, height: 10)
-        textView.font = Self.answerFont
+        textView.font = NSFont.systemFont(ofSize: fontSize)
         textView.textColor = .textColor        // 同样是动态色，避免深色模式下黑字黑底
         scroll.documentView = textView
 
@@ -249,6 +263,12 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate, AVSpeechSynthesizerDelega
     }
 
     func refreshSummaryLimit(_ limit: Int? = nil) {
+        if source.isEmpty {
+            rangeLabel.isHidden = true
+            fullButton.isHidden = true
+            return
+        }
+        rangeLabel.isHidden = false
         let effectiveLimit = limit ?? ConnectionSettings.current(defaults: defaults).summaryLimit
         let sent = sentCharacters
         let mode = modePicker.selectedItem?.representedObject as? String
@@ -258,6 +278,25 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate, AVSpeechSynthesizerDelega
         if !fullButton.isHidden && !fullButton.isEnabled {
             rangeLabel.stringValue += L("（上限 \(effectiveLimit)）", " (limit \(effectiveLimit))")
         }
+    }
+
+    func prepareForDirectQuestion(mode: PromptMode) {
+        cancelRequest()
+        selectMode(key: mode.key)
+        effectiveSource = ""
+        title = L("直接提问", "Ask Directly")
+        turns = []
+        streaming = ""
+        latestReasoning = ""
+        isReasoningCollapsed = false
+        pendingQuestion = nil
+        failure = nil
+        notice = ""
+        awaiting = false
+        lastRequest = (mode, false, nil)
+        refreshSummaryLimit()
+        render()
+        focusQuestionField()
     }
 
     /// 回看一条历史。它是对话的起点：接着追问时模型能看到它；
@@ -272,6 +311,7 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate, AVSpeechSynthesizerDelega
         turns = [ChatTurn(question: entry.question ?? opening.message, answer: entry.answer,
                           message: opening.message, isFollowUp: entry.question != nil)]
         lastRequest = (mode, entry.sentCharacters == total, entry.question)
+        isReasoningCollapsed = false
         awaiting = false
         streaming = ""
         pendingQuestion = nil
@@ -284,8 +324,15 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate, AVSpeechSynthesizerDelega
     @objc private func choosePanelMode() {
         guard let key = modePicker.selectedItem?.representedObject as? String,
               let mode = PromptMode.all(defaults: defaults).first(where: { $0.key == key }) else { return }
+        if source.isEmpty, turns.isEmpty, lastRequest?.question == nil {
+            lastRequest = (mode, false, nil)
+            focusQuestionField()
+            return
+        }
         // 换模式是重新问开头那一个问题：接着之前的追问往下聊没有意义
-        request(mode: mode, full: lastRequest?.full ?? false, question: lastRequest?.question)
+        let initialQuestion = source.isEmpty ? (turns.first?.question ?? lastRequest?.question) : lastRequest?.question
+        if source.isEmpty { turns = [] }
+        request(mode: mode, full: lastRequest?.full ?? false, question: initialQuestion)
     }
 
     @objc private func summarizeAll() {
@@ -300,8 +347,10 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate, AVSpeechSynthesizerDelega
         cancelRequest()
         failure = nil
         let input: QueryInput
+        let startedEmptyDirect = source.isEmpty && turns.isEmpty
         if let question {
-            input = QueryInput(preview: turns.isEmpty ? source + "\n\n" + question : question)
+            let promptText = (turns.isEmpty && !source.isEmpty) ? source + "\n\n" + question : question
+            input = QueryInput(preview: promptText)
         } else {
             do {
                 input = full ? try QueryInput(fullSummary: source, limit: connection.summaryLimit) : QueryInput(preview: source)
@@ -318,7 +367,12 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate, AVSpeechSynthesizerDelega
         let id = requestID
         lastRequest = (mode, full, question)
         pendingQuestion = question
-        title = Self.title(for: source)
+        if source.isEmpty, let question {
+            if startedEmptyDirect { effectiveSource = question }
+            title = Self.title(for: effectiveSource)
+        } else {
+            title = Self.title(for: source)
+        }
         if question == nil {
             updateControls(mode: mode, sent: input.sent, limit: connection.summaryLimit)
         } else {
@@ -328,6 +382,7 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate, AVSpeechSynthesizerDelega
         awaiting = true
         streaming = ""
         latestReasoning = ""
+        isReasoningCollapsed = false
         notice = ""
         lastStreamRender = nil
         let context = Array(turns.suffix(Self.contextLimit))
@@ -346,17 +401,18 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate, AVSpeechSynthesizerDelega
                 })
                 guard requestID == id else { return }
                 turns.append(ChatTurn(question: question ?? input.message, answer: answer,
-                                      message: input.message, isFollowUp: question != nil))
+                                      message: input.message, isFollowUp: question != nil && !startedEmptyDirect))
                 awaiting = false
                 streaming = ""
                 pendingQuestion = nil
                 render()
                 focusQuestionField()
                 // Accept completion on the main actor before handing persistence to the file lock.
-                let (save, source, notices) = (self.save, self.source, historyNotice)
-                let savedQuestion = question
+                let (save, savedSource, notices) = (self.save, self.effectiveSource, historyNotice)
+                let savedQuestion: String? = startedEmptyDirect ? nil : question
+                let savedSent: Int? = (savedQuestion == nil) ? input.sent : nil
                 await Task.detached {
-                    do { try save(mode.key, source, answer, savedQuestion == nil ? input.sent : nil, savedQuestion) }
+                    do { try save(mode.key, savedSource, answer, savedSent, savedQuestion) }
                     catch { NSLog("AskAI: failed to save history: \(error.localizedDescription)") }
                 }.value
                 // 写历史时发现 history.json 读不出来并已挪开重建：在正文下方说明
@@ -448,7 +504,7 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate, AVSpeechSynthesizerDelega
         if let status { failure = status }
         answerText = Self.transcript(turns: turns, pending: pendingTurn, status: nil)
 
-        let base = Self.answerFont
+        let base = NSFont.systemFont(ofSize: fontSize)
         let smallFont = NSFont.systemFont(ofSize: max(10, base.pointSize - 1))
         let out = NSMutableAttributedString()
 
@@ -456,15 +512,33 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate, AVSpeechSynthesizerDelega
             let headerFont = NSFont.systemFont(ofSize: max(10, base.pointSize - 1), weight: .semibold)
             let headerStyle = NSMutableParagraphStyle()
             headerStyle.lineSpacing = 3
-            out.append(NSAttributedString(string: L("💭 思考过程", "💭 Reasoning") + "\n", attributes: [
+            let headerTitle = isReasoningCollapsed
+                ? L("💭 思考过程（\(latestReasoning.count) 字）", "💭 Reasoning (\(latestReasoning.count) chars)")
+                : L("💭 思考过程", "💭 Reasoning")
+            out.append(NSAttributedString(string: headerTitle + "  ", attributes: [
                 .font: headerFont,
                 .foregroundColor: NSColor.secondaryLabelColor,
                 .paragraphStyle: headerStyle,
             ]))
-            let body = NSMutableAttributedString(attributedString: Self.renderedAnswer(latestReasoning, baseFont: smallFont))
-            body.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: NSRange(location: 0, length: body.length))
-            out.append(body)
-            out.append(Self.renderedAnswer("\n\n————\n\n", baseFont: base))
+            out.append(NSAttributedString(string: isReasoningCollapsed ? L("展开", "Show") : L("收起", "Hide"), attributes: [
+                .font: smallFont,
+                .foregroundColor: NSColor.secondaryLabelColor,
+                .link: Self.toggleReasoningURL,
+                .paragraphStyle: headerStyle,
+            ]))
+            if isReasoningCollapsed {
+                out.append(Self.renderedAnswer("\n\n————\n\n", baseFont: base))
+            } else {
+                out.append(NSAttributedString(string: "\n", attributes: [
+                    .font: smallFont,
+                    .foregroundColor: NSColor.secondaryLabelColor,
+                    .paragraphStyle: headerStyle,
+                ]))
+                let body = NSMutableAttributedString(attributedString: Self.renderedAnswer(latestReasoning, baseFont: smallFont))
+                body.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: NSRange(location: 0, length: body.length))
+                out.append(body)
+                out.append(Self.renderedAnswer("\n\n————\n\n", baseFont: base))
+            }
         }
 
         if turns != cachedTurns || base.pointSize != cachedTurnsFontSize {
@@ -550,9 +624,54 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate, AVSpeechSynthesizerDelega
     }
     override func cancelOperation(_ sender: Any?) { close() }
 
-    /// ⌘C 复制回答：窗口显示时即成为 key window，无需先点按钮。
+    func toggleReasoning() {
+        isReasoningCollapsed.toggle()
+        render()
+    }
+
+    func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
+        if (link as? URL) == Self.toggleReasoningURL || (link as? String) == Self.toggleReasoningURL.absoluteString {
+            toggleReasoning()
+            return true
+        }
+        return false
+    }
+
+    func adjustFontSize(delta: CGFloat) {
+        let next = min(max(fontSize + delta, Self.minFontSize), Self.maxFontSize)
+        guard next != fontSize else { return }
+        fontSize = next
+        defaults.set(Double(fontSize), forKey: "panelFontSize")
+        render()
+    }
+
+    func resetFontSize() {
+        guard fontSize != Self.defaultFontSize else { return }
+        fontSize = Self.defaultFontSize
+        defaults.set(Double(fontSize), forKey: "panelFontSize")
+        render()
+    }
+
+    /// ⌘C 复制回答、⌘⇧C 复制最后一个代码块、⌘+/⌘-/⌘0 缩放正文。
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if Self.commandCCopiesTheAnswer(modifiers: event.modifierFlags, characters: event.charactersIgnoringModifiers,
+        let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        let chars = event.charactersIgnoringModifiers
+        if flags == [.command, .shift], chars?.lowercased() == "c" {
+            if copyLastCodeBlock() { return true }
+        }
+        if (flags == .command || flags == [.command, .shift]), chars == "+" || chars == "=" {
+            adjustFontSize(delta: 1)
+            return true
+        }
+        if flags == .command, chars == "-" {
+            adjustFontSize(delta: -1)
+            return true
+        }
+        if flags == .command, chars == "0" {
+            resetFontSize()
+            return true
+        }
+        if Self.commandCCopiesTheAnswer(modifiers: event.modifierFlags, characters: chars,
                                         answerSelection: textView.selectedRange().length,
                                         fieldSelection: questionField.currentEditor()?.selectedRange.length ?? 0) {
             copyAnswer()
@@ -620,17 +739,31 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate, AVSpeechSynthesizerDelega
 
     /// 复制整段对话的 Markdown 原文：粘贴到别处保留语法，不带思考过程和状态行。
     /// 用按钮文字变化给出安静的视觉反馈，不响系统错误提示音。
-    @objc private func copyAnswer() {
-        pasteboard.clearContents()
-        pasteboard.setString(answerText, forType: .string)
+    private func showCopyFeedback(title: String) {
         copyFeedback?.cancel()
-        setCopyButton(copied: true)
+        copyButton.title = title
+        copyButton.image = NSImage(systemSymbolName: "checkmark", accessibilityDescription: nil)
         copyFeedback = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(1_200))
             guard let self, !Task.isCancelled else { return }
             self.setCopyButton(copied: false)
             self.copyFeedback = nil
         }
+    }
+
+    @discardableResult
+    func copyLastCodeBlock() -> Bool {
+        guard let code = Self.lastCodeBlock(in: answerText) else { return false }
+        pasteboard.clearContents()
+        pasteboard.setString(code, forType: .string)
+        showCopyFeedback(title: L("已复制代码 ✓", "Code Copied ✓"))
+        return true
+    }
+
+    @objc private func copyAnswer() {
+        pasteboard.clearContents()
+        pasteboard.setString(answerText, forType: .string)
+        showCopyFeedback(title: L("已复制 ✓", "Copied ✓"))
     }
 
     /// 朗读各轮回答（不读问题和分隔线），去掉行内 Markdown 符号。

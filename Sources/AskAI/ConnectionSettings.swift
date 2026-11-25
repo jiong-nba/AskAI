@@ -1,6 +1,21 @@
 import AppKit
+import ServiceManagement
 
 /// 常见服务商的 chat completions 地址，第一次配置时不用去翻文档。模型名各家变得快，不预填。
+enum LaunchAtLogin {
+    static var isAvailable: Bool { Bundle.main.bundleURL.pathExtension == "app" }
+    static var isEnabled: Bool { isAvailable && SMAppService.mainApp.status == .enabled }
+
+    static func setEnabled(_ enabled: Bool) throws {
+        guard isAvailable else { return }
+        if enabled {
+            if SMAppService.mainApp.status != .enabled { try SMAppService.mainApp.register() }
+        } else if SMAppService.mainApp.status == .enabled {
+            try SMAppService.mainApp.unregister()
+        }
+    }
+}
+
 struct ProviderPreset: Identifiable, Equatable {
     let name: String
     let url: String
@@ -175,6 +190,8 @@ private final class ConnectionSettingsViewController: NSViewController, NSTextFi
     private let temperatureField = NSTextField()
     private let languagePopup = NSPopUpButton()
     private let saveHistoryCheckbox = NSButton(checkboxWithTitle: L("保存历史记录", "Save history"), target: nil, action: nil)
+    private let launchAtLoginCheckbox = NSButton(checkboxWithTitle: L("登录时自动启动", "Launch at login"), target: nil, action: nil)
+    private let initialLaunchAtLogin = LaunchAtLogin.isEnabled
     private let statusLabel = NSTextField(wrappingLabelWithString: "")
     private let testButton = NSButton()
 
@@ -237,6 +254,9 @@ private final class ConnectionSettingsViewController: NSViewController, NSTextFi
         saveHistoryCheckbox.target = self
         saveHistoryCheckbox.action = #selector(fieldChanged)
 
+        launchAtLoginCheckbox.state = initialLaunchAtLogin ? .on : .off
+        launchAtLoginCheckbox.isEnabled = LaunchAtLogin.isAvailable
+
         syncPresetSelection()
 
         func row(_ title: String, _ control: NSView) -> [NSView] {
@@ -267,6 +287,7 @@ private final class ConnectionSettingsViewController: NSViewController, NSTextFi
         let answerGrid = NSGridView(views: [
             row(L("回答语言", "Answer language"), languagePopup),
             row("", saveHistoryCheckbox),
+            row("", launchAtLoginCheckbox),
         ])
         answerGrid.columnSpacing = 12
         answerGrid.rowSpacing = 10
@@ -401,6 +422,10 @@ private final class ConnectionSettingsViewController: NSViewController, NSTextFi
         syncDraftFromFields()
         do {
             try draft.save(environmentKey: environmentKey)
+            let wantLaunch = launchAtLoginCheckbox.state == .on
+            if LaunchAtLogin.isAvailable, wantLaunch != initialLaunchAtLogin {
+                try LaunchAtLogin.setEnabled(wantLaunch)
+            }
             closeAction()
         } catch {
             statusLabel.stringValue = error.localizedDescription
