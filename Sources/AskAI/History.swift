@@ -11,6 +11,29 @@ struct HistoryEntry: Codable, Equatable {
     var question: String? = nil   // 追问的问题；对原文的提问没有这一项，旧版本写出的条目也没有
 }
 
+private final class DateFormatterCache: @unchecked Sendable {
+    static let shared = DateFormatterCache()
+    private let lock = NSLock()
+    private var cache: [String: DateFormatter] = [:]
+
+    func format(_ date: Date, sameYear: Bool, chinese: Bool) -> String {
+        let key = "\(chinese)-\(sameYear)"
+        lock.lock(); defer { lock.unlock() }
+        let formatter: DateFormatter
+        if let existing = cache[key] {
+            formatter = existing
+        } else {
+            formatter = DateFormatter()
+            formatter.locale = Locale(identifier: chinese ? "zh_CN" : "en_US")
+            formatter.dateFormat = sameYear
+                ? (chinese ? "M月d日" : "MMM d")
+                : (chinese ? "yyyy年M月d日" : "MMM d, yyyy")
+            cache[key] = formatter
+        }
+        return formatter.string(from: date)
+    }
+}
+
 /// 历史菜单里的相对时间：一天以内用相对说法，更早的给日期。
 func relativeTime(from date: Date, now: Date = Date()) -> String {
     let elapsed = now.timeIntervalSince(date)
@@ -27,12 +50,7 @@ func relativeTime(from date: Date, now: Date = Date()) -> String {
     case ..<(2 * day):
         return L("昨天", "yesterday")
     default:
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: appIsChinese ? "zh_CN" : "en_US")
-        formatter.dateFormat = elapsed < 365 * day
-            ? (appIsChinese ? "M月d日" : "MMM d")
-            : (appIsChinese ? "yyyy年M月d日" : "MMM d, yyyy")
-        return formatter.string(from: date)
+        return DateFormatterCache.shared.format(date, sameYear: elapsed < 365 * day, chinese: appIsChinese)
     }
 }
 
@@ -43,6 +61,46 @@ let historyLimit = 20
 let historyDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
     .appendingPathComponent("AskAI", isDirectory: true)
 let historyFile = historyDir.appendingPathComponent("history.json")
+
+private final class HistoryCache: @unchecked Sendable {
+    static let shared = HistoryCache()
+    private struct Stamp: Equatable {
+        let inode: UInt64
+        let modified: Date
+        let size: UInt64
+    }
+    private let lock = NSLock()
+    private var stamp: Stamp?
+    private var entries: [HistoryEntry] = []
+
+    private func currentStamp() -> Stamp? {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: historyFile.path),
+              let inode = (attrs[.systemFileNumber] as? NSNumber)?.uint64Value,
+              let modified = attrs[.modificationDate] as? Date,
+              let size = (attrs[.size] as? NSNumber)?.uint64Value else { return nil }
+        return Stamp(inode: inode, modified: modified, size: size)
+    }
+
+    func cachedEntries() -> [HistoryEntry]? {
+        guard let current = currentStamp() else { return nil }
+        lock.lock(); defer { lock.unlock() }
+        guard stamp == current else { return nil }
+        return entries
+    }
+
+    func store(_ list: [HistoryEntry]) {
+        let nextStamp = currentStamp()
+        lock.lock(); defer { lock.unlock() }
+        stamp = nextStamp
+        entries = list
+    }
+
+    func invalidate() {
+        lock.lock(); defer { lock.unlock() }
+        stamp = nil
+        entries = []
+    }
+}
 
 // history.json is atomically replaced. Lock a separate, persistent inode for every writer.
 private func withHistoryLock<T>(_ operation: () throws -> T) throws -> T {
@@ -108,15 +166,16 @@ func readHistoryFile() throws -> [HistoryEntry] {
 }
 
 private func saveHistory(_ entries: [HistoryEntry]) throws {
-    let data = try JSONEncoder().encode(Array(entries.prefix(historyLimit)))
+    let trimmed = Array(entries.prefix(historyLimit))
+    let data = try JSONEncoder().encode(trimmed)
     try data.write(to: historyFile, options: .atomic)
     try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: historyFile.path)
+    HistoryCache.shared.store(trimmed)
 }
 
 /// Called under the history lock. Another process may have migrated these defaults already.
 private func migrateLegacyHistoryIfNeeded() throws {
     guard defaults.object(forKey: historyKey) != nil else { return }
-    defaults.synchronize()
     guard let raw = defaults.array(forKey: historyKey) as? [[String: Any]] else { return }
     let legacy: [HistoryEntry] = raw.compactMap { d in
         guard let t = d["time"] as? Double, let m = d["mode"] as? String,
@@ -128,14 +187,18 @@ private func migrateLegacyHistoryIfNeeded() throws {
         try saveHistory(existing + legacy.filter { !existing.contains($0) })
     }
     defaults.removeObject(forKey: historyKey)
-    defaults.synchronize()
 }
 
 func loadHistory() -> [HistoryEntry] {
+    if defaults.object(forKey: historyKey) == nil, let cached = HistoryCache.shared.cachedEntries() {
+        return cached
+    }
     do {
         return try withHistoryLock {
             try migrateLegacyHistoryIfNeeded()
-            return try readHistoryFile()
+            let entries = try readHistoryFile()
+            HistoryCache.shared.store(entries)
+            return entries
         }
     } catch {
         NSLog("AskAI: failed to load history: \(error.localizedDescription)")
@@ -150,7 +213,7 @@ func clearHistoryStorage() {
                 try FileManager.default.removeItem(at: historyFile)
             }
             defaults.removeObject(forKey: historyKey)
-            defaults.synchronize()
+            HistoryCache.shared.invalidate()
         }
     } catch {
         NSLog("AskAI: failed to clear history: \(error.localizedDescription)")

@@ -49,15 +49,13 @@ func askLLM(_ input: QueryInput, mode: PromptMode, connection: ConnectionSetting
         let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
         guard code == 200 else {
             let errBody = String(data: data, encoding: .utf8) ?? ""
-            throw NSError(domain: "AskAI", code: code,
-                          userInfo: [NSLocalizedDescriptionKey: L("API 出错 (\(code)): \(errBody.prefix(200))", "API error (\(code)): \(errBody.prefix(200))")])
+            throw AskError(L("API 出错 (\(code)): \(errBody.prefix(200))", "API error (\(code)): \(errBody.prefix(200))"))
         }
         let root = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         let choices = root?["choices"] as? [[String: Any]]
         let message = choices?.first?["message"] as? [String: Any]
         guard let content = message?["content"] as? String, !content.isEmpty else {
-            throw NSError(domain: "AskAI", code: 2,
-                          userInfo: [NSLocalizedDescriptionKey: L("响应里没有 content", "Response contained no content")])
+            throw AskError(L("响应里没有 content", "Response contained no content"))
         }
         return content
     }
@@ -75,8 +73,7 @@ func askLLM(_ input: QueryInput, mode: PromptMode, connection: ConnectionSetting
                 lines += 1
                 if raw.count > 300 || lines > 20 { break }
             }
-            throw NSError(domain: "AskAI", code: code,
-                          userInfo: [NSLocalizedDescriptionKey: L("API 出错 (\(code)): \(raw.prefix(200))", "API error (\(code)): \(raw.prefix(200))")])
+            throw AskError(L("API 出错 (\(code)): \(raw.prefix(200))", "API error (\(code)): \(raw.prefix(200))"))
         }
 
         // 服务端确认完成后 readChatStream 会提前返回；读完或出错后都把底层请求收掉，不让连接挂着
@@ -108,8 +105,7 @@ where Lines.Element == String {
         guard let obj = try? JSONSerialization.jsonObject(with: Data(payload.utf8)) as? [String: Any] else { continue }
         if let error = obj["error"], !(error is NSNull) {
             let message = (error as? [String: Any])?["message"] as? String
-            throw NSError(domain: "AskAI", code: 3, userInfo: [NSLocalizedDescriptionKey:
-                message ?? L("服务端报告流式请求失败", "The server reported a streaming error")])
+            throw AskError(message ?? L("服务端报告流式请求失败", "The server reported a streaming error"))
         }
         guard let choices = obj["choices"] as? [[String: Any]], let choice = choices.first else { continue }
         if let delta = choice["delta"] as? [String: Any] {
@@ -126,8 +122,7 @@ where Lines.Element == String {
         }
         if let reason = choice["finish_reason"] as? String, !reason.isEmpty {
             guard reason == "stop" else {
-                throw NSError(domain: "AskAI", code: 3, userInfo: [NSLocalizedDescriptionKey:
-                    L("生成提前结束（\(reason)）", "Generation ended early (\(reason))")])
+                throw AskError(L("生成提前结束（\(reason)）", "Generation ended early (\(reason))"))
             }
             // 服务端已经确认完成：到此为止。继续读到连接结束的话，对方关闭得不干净
             // （或不发 [DONE]）就会把一段完整的回答判成失败
@@ -136,12 +131,10 @@ where Lines.Element == String {
         }
     }
     guard finished else {
-        throw NSError(domain: "AskAI", code: 3, userInfo: [NSLocalizedDescriptionKey:
-            L("连接在服务端确认完成前关闭", "Connection closed before the server confirmed completion")])
+        throw AskError(L("连接在服务端确认完成前关闭", "Connection closed before the server confirmed completion"))
     }
     guard !full.isEmpty else {
-        throw NSError(domain: "AskAI", code: 2,
-                      userInfo: [NSLocalizedDescriptionKey: L("流式响应没有内容", "Empty streaming response")])
+        throw AskError(L("流式响应没有内容", "Empty streaming response"))
     }
     return full
 }

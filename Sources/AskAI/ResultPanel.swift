@@ -55,6 +55,9 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate, AVSpeechSynthesizerDelega
     private var lastStreamRender: ContinuousClock.Instant?
     private var requestID = UUID()
     private var turns: [ChatTurn] = []                 // 这段对话里已完成的轮次，追问时作为上下文
+    private var cachedTurns: [ChatTurn] = []
+    private var cachedTurnsFontSize: CGFloat = 0
+    private var cachedTurnsRendered = NSAttributedString()
     private var awaiting = false                       // 有请求在途（哪怕还没收到第一个字）
     private var streaming = ""                         // 在途那一轮已收到的正文（Markdown 原文）
     private var pendingQuestion: String?               // 在途那一轮是追问时的问题；对原文提问时为 nil
@@ -92,10 +95,7 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate, AVSpeechSynthesizerDelega
 
     /// 窗口标题：原文摘要（压平换行、去首尾空白），超出上限时截断并加省略号
     static func title(for source: String) -> String {
-        let flat = source
-            .replacingOccurrences(of: "\r\n", with: " ")
-            .replacingOccurrences(of: "\n", with: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let flat = source.flattenedLine
         guard flat.count > titleLimit else { return flat }
         return String(flat.prefix(titleLimit)) + "…"
     }
@@ -435,7 +435,7 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate, AVSpeechSynthesizerDelega
         return parts.joined(separator: "\n\n————\n\n")
     }
 
-    private nonisolated static func body(of turn: ChatTurn, whileEmpty: String = "") -> String {
+    nonisolated static func body(of turn: ChatTurn, whileEmpty: String = "") -> String {
         let text = turn.answer.isEmpty ? whileEmpty : turn.answer
         return turn.isFollowUp ? "❓ " + turn.question + "\n\n" + text : text
     }
@@ -467,7 +467,20 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate, AVSpeechSynthesizerDelega
             out.append(Self.renderedAnswer("\n\n————\n\n", baseFont: base))
         }
 
-        out.append(Self.renderedAnswer(answerText, baseFont: base))
+        if turns != cachedTurns || base.pointSize != cachedTurnsFontSize {
+            cachedTurns = turns
+            cachedTurnsFontSize = base.pointSize
+            let turnsMarkdown = Self.transcript(turns: turns, pending: nil, status: nil)
+            cachedTurnsRendered = turnsMarkdown.isEmpty ? NSAttributedString() : Self.renderedAnswer(turnsMarkdown, baseFont: base)
+        }
+        out.append(cachedTurnsRendered)
+        if let pending = pendingTurn {
+            if !turns.isEmpty {
+                out.append(Self.renderedAnswer("\n\n————\n\n", baseFont: base))
+            }
+            let pendingMarkdown = Self.body(of: pending, whileEmpty: L("思考中…", "Thinking…"))
+            out.append(Self.renderedAnswer(pendingMarkdown, baseFont: base))
+        }
 
         if let failure {
             let prefix = answerText.isEmpty ? "" : "\n\n"
