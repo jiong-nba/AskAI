@@ -7,26 +7,30 @@ import Darwin
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelegate {
-    private let hotKeySlot = HotKeySlot()
+    private let hotKeySlots: [HotKeyAction: HotKeySlot] = Dictionary(
+        uniqueKeysWithValues: HotKeyAction.allCases.map { ($0, HotKeySlot()) }
+    )
     private var statusItem: NSStatusItem?   // 必须强引用！局部变量会被立即释放，图标就没了
     private var infoItem: NSMenuItem?
-    private var setHotkeyItem: NSMenuItem?
+    private let hotKeyMenu = NSMenu()
+    private var askDirectlyItem: NSMenuItem?
+    private var askFromScreenItem: NSMenuItem?
     private var recorderPanel: NSPanel?
+    private var recorderLabel: NSTextField?
+    private var recordingAction: HotKeyAction?
     private var keyMonitor: Any?
-    private var recording = false
+    private var recording: Bool { recordingAction != nil }
     private var settingsWindow: NSWindow?
     private var modesWindow: NSWindow?
     private let modeMenu = NSMenu()   // 条目在 refreshMenu() 里填
     private var lastPanel: ResultPanel?        // 记住上一个结果窗，新结果出来时先关掉
-
-    private var hotkeyDesc: String { defaults.string(forKey: "hotkeyDesc") ?? "⌘⇧E" }
 
     func applicationDidFinishLaunching(_ note: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem?.button?.title = "🤖"
 
         let menu = NSMenu()
-        let info = NSMenuItem(title: L("选中文字后按 \(hotkeyDesc) 询问 AI", "Select text, then press \(hotkeyDesc)"), action: nil, keyEquivalent: "")
+        let info = NSMenuItem(title: "", action: nil, keyEquivalent: "")
         infoItem = info
         menu.addItem(info)
         menu.addItem(.separator())
@@ -51,20 +55,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         modes.target = self
         menu.addItem(modes)
 
-        let setHotkey = NSMenuItem(title: L("设置快捷键…（当前 \(hotkeyDesc)）", "Set Hotkey… (now \(hotkeyDesc))"),
-                                   action: #selector(openRecorder), keyEquivalent: "")
-        setHotkey.target = self
-        setHotkeyItem = setHotkey
-        menu.addItem(setHotkey)
+        let setHotkeys = NSMenuItem(title: L("设置快捷键", "Set Hotkeys"), action: nil, keyEquivalent: "")
+        setHotkeys.submenu = hotKeyMenu
+        menu.addItem(setHotkeys)
 
-        let askDirectlyItem = NSMenuItem(title: L("直接提问…", "Ask Directly…"),
-                                         action: #selector(askDirectly), keyEquivalent: "")
+        let askDirectlyItem = NSMenuItem(title: "", action: #selector(askDirectly), keyEquivalent: "")
         askDirectlyItem.target = self
+        self.askDirectlyItem = askDirectlyItem
         menu.addItem(askDirectlyItem)
 
-        let shot = NSMenuItem(title: L("截图解释…（图片里的文字）", "Explain from Screen… (text in images)"),
-                              action: #selector(askFromScreen), keyEquivalent: "")
+        let shot = NSMenuItem(title: "", action: #selector(askFromScreen), keyEquivalent: "")
         shot.target = self
+        askFromScreenItem = shot
         menu.addItem(shot)
 
         // 重启：同一二进制重开，不会丢辅助功能授权（重建才会丢）
@@ -84,7 +86,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         menu.delegate = self
         refreshMenu()
 
-        if !registerHotKey() { showHotKeyRegistrationFailure() }
+        let failedHotKeys = registerAllHotKeys()
+        if !failedHotKeys.isEmpty { showHotKeyRegistrationFailure(failedHotKeys) }
         if !ConnectionSettings.current().isConfigured { openSettings() }
         else { promptForAccessibilityIfNeeded() }
     }
@@ -118,6 +121,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     func menuWillOpen(_ menu: NSMenu) { refreshMenu() }
 
     private func refreshMenu() {
+        updateHotKeyMenuItems()
         guard let menu = statusItem?.menu else { return }
         let cur = currentMode().key
         modeMenu.removeAllItems()
@@ -228,14 +232,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         _ = AXIsProcessTrustedWithOptions(options)
     }
 
-    /// 注册全局快捷键。返回 false 表示没注册上（被其他应用占用或按键不受支持）。
+    private func updateHotKeyMenuItems() {
+        let selectionDesc = hotKeyDescription(for: .askSelection) ?? defaultHotKeyDesc
+        infoItem?.title = L("选中文字后按 \(selectionDesc) 询问 AI", "Select text, then press \(selectionDesc)")
+
+        if let directDesc = hotKeyDescription(for: .askDirectly) {
+            askDirectlyItem?.title = L("直接提问…（\(directDesc)）", "Ask Directly… (\(directDesc))")
+        } else {
+            askDirectlyItem?.title = L("直接提问…", "Ask Directly…")
+        }
+
+        if let screenDesc = hotKeyDescription(for: .askFromScreen) {
+            askFromScreenItem?.title = L("截图解释…（\(screenDesc)）", "Explain from Screen… (\(screenDesc))")
+        } else {
+            askFromScreenItem?.title = L("截图解释…（图片里的文字）", "Explain from Screen… (text in images)")
+        }
+
+        hotKeyMenu.removeAllItems()
+        for action in HotKeyAction.allCases {
+            let status = hotKeyDescription(for: action).map { L("当前 \($0)", "now \($0)") } ?? L("未设置", "not set")
+            let title = appIsChinese ? "\(action.title)…（\(status)）" : "\(action.title)… (\(status))"
+            let item = NSMenuItem(title: title, action: #selector(openRecorderForMenuItem(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = action.rawValue
+            hotKeyMenu.addItem(item)
+        }
+    }
+
+    /// 注册单个全局快捷键。可选动作未配置时解绑并返回 true；返回 false 表示被占用或不受支持。
     @discardableResult
-    private func registerHotKey() -> Bool {
-        infoItem?.title = L("选中文字后按 \(hotkeyDesc) 询问 AI", "Select text, then press \(hotkeyDesc)")
-        setHotkeyItem?.title = L("设置快捷键…（当前 \(hotkeyDesc)）", "Set Hotkey… (now \(hotkeyDesc))")
-        let current = configuredHotKey()
-        return hotKeySlot.bind(keyCode: current.code, mods: current.mods) { [weak self] in
-            self?.ask()
+    private func registerHotKey(for action: HotKeyAction) -> Bool {
+        guard let slot = hotKeySlots[action] else { return false }
+        guard let combo = configuredHotKey(for: action) else {
+            slot.unbind()
+            return true
+        }
+        return slot.bind(keyCode: combo.code, mods: combo.mods) { [weak self] in
+            self?.performHotKeyAction(action)
+        }
+    }
+
+    @discardableResult
+    private func registerAllHotKeys() -> [HotKeyAction] {
+        updateHotKeyMenuItems()
+        return HotKeyAction.allCases.filter { !registerHotKey(for: $0) }
+    }
+
+    private func unbindAllHotKeys() {
+        for slot in hotKeySlots.values {
+            slot.unbind()
+        }
+    }
+
+    private func performHotKeyAction(_ action: HotKeyAction) {
+        switch action {
+        case .askSelection: ask()
+        case .askDirectly: askDirectly()
+        case .askFromScreen: askFromScreen()
         }
     }
 
@@ -248,10 +301,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     /// 快捷键没注册上要明说，别让用户对着“按了没反应”猜。
-    private func showHotKeyRegistrationFailure() {
-        showAlert(title: L("快捷键 \(hotkeyDesc) 未能注册", "Hotkey \(hotkeyDesc) could not be registered"),
-                  message: L("它可能已被其他应用占用，或这个按键不受支持。请到菜单栏 🤖 →「设置快捷键…」换一个组合。",
-                             "It may already be taken by another app, or the key is not supported. Choose another combination via 🤖 → Set Hotkey…."))
+    private func showHotKeyRegistrationFailure(_ failed: [HotKeyAction]) {
+        let title: String
+        let detail: String
+        if failed.count == 1, let only = failed.first {
+            let desc = hotKeyDescription(for: only) ?? defaultHotKeyDesc
+            title = L("快捷键 \(desc) 未能注册", "Hotkey \(desc) could not be registered")
+            detail = L("「\(only.title)」的快捷键可能已被其他应用占用，或这个按键不受支持。请到菜单栏 🤖 →「设置快捷键」换一个组合。",
+                       "The hotkey for \"\(only.title)\" may already be taken by another app, or the key is not supported. Choose another combination via 🤖 → Set Hotkeys.")
+        } else {
+            let list = failed.map { action in
+                let desc = hotKeyDescription(for: action) ?? defaultHotKeyDesc
+                return appIsChinese ? "「\(action.title)」（\(desc)）" : "\"\(action.title)\" (\(desc))"
+            }.joined(separator: L("、", ", "))
+            title = L("以下快捷键未能注册：\(list)", "These hotkeys could not be registered: \(list)")
+            detail = L("它们可能已被其他应用占用，或按键不受支持。请到菜单栏 🤖 →「设置快捷键」重新设置。",
+                       "They may already be taken by another app, or the keys are not supported. Choose new combinations via 🤖 → Set Hotkeys.")
+        }
+        showAlert(title: title, message: detail)
     }
 
     private var capturingSelection = false
@@ -262,18 +329,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         guard ConnectionSettings.current().isConfigured else { openSettings(); return }
         capturingSelection = true
         Task { @MainActor in
-            defer { capturingSelection = false }
+            let text: String?
             do {
-                if let text = try await selectedText() {
-                    runQuery(source: text)
-                } else {
-                    askFromScreen()
-                }
-            } catch { /* Focus changed or capture was cancelled. */ }
+                text = try await selectedText()
+            } catch {
+                capturingSelection = false
+                return   // Focus changed or capture was cancelled.
+            }
+            // 先清标志再决定是否降级截图：askFromScreen() 自己也守卫 !capturingSelection
+            capturingSelection = false
+            if let text {
+                runQuery(source: text)
+            } else {
+                askFromScreen()
+            }
         }
     }
 
     @objc private func askDirectly() {
+        guard !recording, !capturingSelection, !capturingScreen else { return }
         guard ConnectionSettings.current().isConfigured else { openSettings(); return }
         let panel = presentResult(source: "")
         panel.prepareForDirectQuestion(mode: currentMode())
@@ -282,7 +356,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
     /// 截图选区 → OCR → 解释。screencapture 与 Vision OCR 都在后台跑，避免框选期间主线程卡住。
     @objc private func askFromScreen() {
-        guard !capturingScreen else { return }
+        guard !recording, !capturingSelection, !capturingScreen else { return }
         guard ConnectionSettings.current().isConfigured else { openSettings(); return }
         capturingScreen = true
         Task { @MainActor in
@@ -317,30 +391,83 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
     // MARK: 快捷键录制窗口
 
-    @objc private func openRecorder() {
-        if recorderPanel != nil { return }
+    @objc private func openRecorderForMenuItem(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let action = HotKeyAction(rawValue: raw) else { return }
+        openRecorder(for: action)
+    }
+
+    private func openRecorder(for action: HotKeyAction) {
+        if let existing = recorderPanel {
+            if recordingAction == action {
+                NSApp.activate(ignoringOtherApps: true)
+                existing.makeKeyAndOrderFront(nil)
+                return
+            }
+            closeRecorder()
+        }
+
+        // 录制期间暂时解绑所有全局快捷键，免得按到现有组合时被 Carbon 吞掉
+        unbindAllHotKeys()
 
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 400, height: 140),
                             styleMask: [.titled, .closable],
                             backing: .buffered, defer: false)
-        panel.title = L("设置快捷键", "Set Hotkey")
+        panel.title = L("设置快捷键 — \(action.title)", "Set Hotkey — \(action.title)")
         panel.level = .floating
         panel.isReleasedWhenClosed = false
         panel.delegate = self
 
-        let label = NSTextField(labelWithString: L("按下新的快捷键组合\n需至少包含一个修饰键，Esc 取消", "Press the new shortcut\nAt least one modifier is required; Esc to cancel"))
+        let promptText: String
+        if action.isOptional, let currentDesc = hotKeyDescription(for: action) {
+            promptText = L("当前快捷键：\(currentDesc)\n按下新的快捷键组合（需至少包含一个修饰键）\n按 Delete 清除，Esc 取消",
+                           "Current: \(currentDesc)\nPress the new shortcut (at least one modifier)\nPress Delete to clear; Esc to cancel")
+        } else {
+            promptText = L("按下新的快捷键组合\n需至少包含一个修饰键，Esc 取消",
+                           "Press the new shortcut\nAt least one modifier is required; Esc to cancel")
+        }
+
+        let label = NSTextField(wrappingLabelWithString: promptText)
         label.alignment = .center
         label.font = .systemFont(ofSize: 14)
-        label.frame = NSRect(x: 20, y: 20, width: 360, height: 90)
-        label.autoresizingMask = [.width, .height]
-        panel.contentView?.addSubview(label)
+
+        var arrangedViews: [NSView] = [label]
+        if action.isOptional && configuredHotKey(for: action) != nil {
+            let clearButton = NSButton(title: L("清除快捷键", "Clear Shortcut"),
+                                       target: self, action: #selector(clearRecordedHotKey))
+            clearButton.bezelStyle = .rounded
+            arrangedViews.append(clearButton)
+        }
+
+        let stack = NSStackView(views: arrangedViews)
+        stack.orientation = .vertical
+        stack.alignment = .centerX
+        stack.spacing = 12
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        let root = NSView()
+        root.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(stack)
+        NSLayoutConstraint.activate([
+            root.widthAnchor.constraint(equalToConstant: 400),
+            stack.topAnchor.constraint(equalTo: root.topAnchor, constant: 20),
+            stack.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -20),
+            stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 20),
+            stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -20),
+            label.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            label.heightAnchor.constraint(greaterThanOrEqualToConstant: 56),
+        ])
+        panel.contentView = root
+        root.layoutSubtreeIfNeeded()
+        panel.setContentSize(root.fittingSize)
 
         panel.center()
         panel.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
 
         recorderPanel = panel
-        recording = true
+        recorderLabel = label
+        recordingAction = action
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, event.window === panel else { return event }
             return self.handleRecorderKey(event)
@@ -348,57 +475,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     private func handleRecorderKey(_ event: NSEvent) -> NSEvent? {
+        guard let action = recordingAction else { return event }
         let code = event.keyCode
         if code == UInt16(kVK_Escape) { closeRecorder(); return nil }
+
+        let mods = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        if action.isOptional, mods.isEmpty,
+           code == UInt16(kVK_Delete) || code == UInt16(kVK_ForwardDelete) {
+            clearRecordedHotKey()
+            return nil
+        }
 
         // 单独的修饰键不算有效组合
         let modifierKeyCodes: Set<UInt16> = [54, 55, 56, 57, 58, 59, 60, 61, 62, 63]
         if modifierKeyCodes.contains(code) { return nil }
-
-        let mods = event.modifierFlags.intersection([.command, .option, .control, .shift])
         guard !mods.isEmpty else { return nil }                  // 至少一个修饰键
+
         let takenMessage = L("这个组合已被其他应用占用，请换一个",
                              "This shortcut is already taken by another app; try another combination")
-        switch HotKeyRecording.outcome(keyCode: UInt32(code), mods: mods, current: configuredHotKey()) {
+        let current = configuredHotKey(for: action)
+        let others = otherConfiguredHotKeys(excluding: action)
+        switch HotKeyRecording.outcome(keyCode: UInt32(code), mods: mods, current: current, others: others) {
         case .unsupported:   // 该键不受支持就提示，不改配置
             showRecorderMessage(L("这个按键暂不支持，请换一个组合", "That key is not supported; try another combination"))
         case .unchanged:
             closeRecorder()
+        case .usedByOtherAction(let other):
+            showRecorderMessage(L("这个组合已分配给「\(other.title)」，请换一个",
+                                    "This shortcut is already assigned to \"\(other.title)\"; try another combination"))
         case .taken:
             showRecorderMessage(takenMessage)
         case .accepted:
-            let previous = configuredHotKey()
-            let previousDesc = hotkeyDesc
-            saveHotKey(code: UInt32(code), mods: mods, desc: modifierSymbols(mods) + keyLabel(event))
-            if registerHotKey() {
+            let previousDesc = defaults.string(forKey: action.descKey)
+            let nextCombo = HotKeyCombo(code: UInt32(code), mods: mods)
+            saveHotKey(nextCombo, desc: modifierSymbols(mods) + keyLabel(event), for: action)
+            if registerHotKey(for: action) {
                 closeRecorder()
             } else {
-                // 探测之后、注册之前被别的应用抢走了：配置和绑定都退回原样
-                saveHotKey(code: previous.code, mods: previous.mods, desc: previousDesc)
-                registerHotKey()
+                // 探测之后、注册之前被别的应用抢走了：配置退回原样，退出录制时由 tearDownRecorder() 重绑
+                if let current {
+                    saveHotKey(current, desc: previousDesc ?? "", for: action)
+                    if previousDesc == nil { defaults.removeObject(forKey: action.descKey) }
+                } else {
+                    clearHotKey(for: action)
+                }
                 showRecorderMessage(takenMessage)
             }
         }
         return nil
     }
 
-    private func saveHotKey(code: UInt32, mods: NSEvent.ModifierFlags, desc: String) {
-        defaults.set(Int(code), forKey: "hotkeyKey")
-        defaults.set(Int(mods.rawValue), forKey: "hotkeyMods")
-        defaults.set(desc, forKey: "hotkeyDesc")
+    @objc private func clearRecordedHotKey() {
+        guard let action = recordingAction, action.isOptional else { return }
+        clearHotKey(for: action)
+        closeRecorder()
     }
 
     private func showRecorderMessage(_ text: String) {
-        (recorderPanel?.contentView?.subviews.first as? NSTextField)?.stringValue = text
-    }
-
-    private func modifierSymbols(_ mods: NSEvent.ModifierFlags) -> String {
-        var s = ""
-        if mods.contains(.control) { s += "⌃" }
-        if mods.contains(.option) { s += "⌥" }
-        if mods.contains(.shift) { s += "⇧" }
-        if mods.contains(.command) { s += "⌘" }
-        return s
+        recorderLabel?.stringValue = text
     }
 
     private func keyLabel(_ event: NSEvent) -> String {
@@ -410,8 +544,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
     private func tearDownRecorder() {
         if let m = keyMonitor { NSEvent.removeMonitor(m); keyMonitor = nil }
-        recording = false
+        recordingAction = nil
         recorderPanel = nil
+        recorderLabel = nil
+        _ = registerAllHotKeys()
     }
 
     private func closeRecorder() {

@@ -17,8 +17,8 @@ Native Swift menu-bar app with no Dock icon.
   it auto-scrolls while you stay at the bottom.
   If a stream is interrupted, the panel keeps the partial answer and shows the error. Only completed answers enter history.
 - **Four modes** — Explain / Translate / Summarize / Explain Code — choose a default in the menu bar, or rerun the same selection in a different mode from a result or history window. Switching cancels the previous request and starts a fresh conversation.
-- **Direct question** — use 🤖 → "Ask Directly…" to open an empty panel and ask anything without selecting text first
-- **Screenshot OCR** — if no text can be read from the selection, it falls back to a screen-region capture and Vision OCR (with automatic language detection)
+- **Direct question** — use 🤖 → "Ask Directly…" (or assign a global hotkey for it) to open an empty panel and ask anything without selecting text first
+- **Screenshot OCR** — if no text can be read from the selection, it falls back to a screen-region capture and Vision OCR (with automatic language detection); you can also trigger it directly with its own global hotkey
 - **History** — last 20 entries, reopen any from the menu; each entry is listed with its mode and age, and shows the full text on hover
 - **Read aloud** — system TTS, picks a Chinese or English voice automatically; reads the answers of all turns without Markdown symbols
 - **Copy result** — press ⌘C in the panel (or click Copy) to copy the whole conversation as Markdown source, without the reasoning trace; with text selected, ⌘C copies the selection. Press ⌘⇧C to copy only the last code block
@@ -29,7 +29,7 @@ Native Swift menu-bar app with no Dock icon.
 - **Markdown rendering** — bold, italic, inline code, links, headings, bullet/numbered lists, horizontal rules and block quotes are rendered; fenced code blocks appear in a monospaced rounded card, and tables are shown in a monospaced font (other block syntax is shown verbatim)
 - **Reasoning models** — the thinking trace (reasoning_content, e.g. deepseek-reasoner) streams above the answer and can be collapsed/expanded inline; history and copy keep the final answer
 - **Launch at login** — native `SMAppService` toggle in Settings (when running from `AskAI.app`)
-- **Custom hotkey** — record it right in the menu; the recorder tells you when another app already uses the combination
+- **Custom hotkeys** — configure independent hotkeys for **Explain Selection** (default `⌘⇧E`), **Ask Directly** (unset by default), and **Explain from Screen** (unset by default) under 🤖 → **Set Hotkeys**; the recorder warns about conflicts with other apps or other AskAI actions, and optional hotkeys can be cleared with Delete or **Clear Shortcut**
 - **Any OpenAI-compatible endpoint** — DeepSeek, OpenAI, Ollama, etc. Settings offers the common addresses as presets, and endpoints on `localhost` need no API key
 - **Answer language of its own** — answers follow the UI language by default; choose Chinese or English separately in Settings
 - **Custom modes** — add your own modes (a name and a system prompt) via 🤖 → "Manage Modes…"; they appear in the Mode menu and in the panel's mode picker
@@ -73,7 +73,7 @@ Settings and the CLI share the same `defaults` preferences. Test Connection send
 | API key | `defaults write com.dsh.AskAI apiKey sk-xxx` |
 | Model | `defaults write com.dsh.AskAI model deepseek-chat` |
 | Endpoint | `defaults write com.dsh.AskAI baseURL "https://api.openai.com/v1/chat/completions"` (a full `http://` or `https://` URL — `http` for an endpoint on your own machine; an invalid value falls back to the default endpoint and `--check` prints a warning) |
-| Hotkey | Menu 🤖 → "Set Hotkey…" and press the combination |
+| Hotkeys | Menu 🤖 → "Set Hotkeys" submenu (`Explain Selection` defaults to `⌘⇧E`; `Ask Directly` and `Explain from Screen` default to unset and can be cleared with Delete or "Clear Shortcut") |
 | Mode | Menu 🤖 → "Mode" |
 | Custom modes | Menu 🤖 → "Manage Modes…" (kept in `defaults` as JSON under `customModes`) |
 | History | Edit `~/Library/Application Support/AskAI/history.json` |
@@ -97,7 +97,7 @@ Two flags are available on the bundled binary (or via `swift run -- --check`):
 
 ### `--check`
 
-Prints what the app actually sees: bundle id, defaults domain, key source, endpoint, model, temperature, hotkey,
+Prints what the app actually sees: bundle id, defaults domain, key source, endpoint, model, temperature, hotkeys,
 and whether Accessibility is granted. Use it first whenever something does not work.
 
 ```bash
@@ -114,6 +114,8 @@ model            : deepseek-chat
 temperature      : 0.3
 endpoint         : https://api.deepseek.com/chat/completions
 hotkey           : ⌘⇧E
+direct ask key   : not set
+screen ask key   : not set
 ui language      : en
 accessibility    : granted
 ```
