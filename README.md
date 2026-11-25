@@ -17,16 +17,18 @@ Native Swift menu-bar app with no Dock icon.
   it auto-scrolls while you stay at the bottom.
   If a stream is interrupted, the panel keeps the partial answer and shows the error. Only completed answers enter history.
 - **Four modes** — Explain / Translate / Summarize / Explain Code — choose a default in the menu bar, or rerun the same selection in a different mode from a result or history window. Switching cancels the previous request and starts a fresh conversation.
-- **Screenshot OCR** — if no text can be read from the selection, it falls back to a screen-region capture and Vision OCR
+- **Direct question** — use 🤖 → "Ask Directly…" to open an empty panel and ask anything without selecting text first
+- **Screenshot OCR** — if no text can be read from the selection, it falls back to a screen-region capture and Vision OCR (with automatic language detection)
 - **History** — last 20 entries, reopen any from the menu; each entry is listed with its mode and age, and shows the full text on hover
 - **Read aloud** — system TTS, picks a Chinese or English voice automatically; reads the answers of all turns without Markdown symbols
-- **Copy result** — press ⌘C in the panel (or click Copy) to copy the whole conversation as Markdown source, without the reasoning trace; with text selected, ⌘C copies the selection
+- **Copy result** — press ⌘C in the panel (or click Copy) to copy the whole conversation as Markdown source, without the reasoning trace; with text selected, ⌘C copies the selection. Press ⌘⇧C to copy only the last code block
 - **Near the cursor** — the panel opens next to the selection instead of screen center
 - **Follow-up questions** — type a question at the bottom of the panel and press Return; earlier turns are sent back as context (the last 8). When the answer finishes, the follow-up field takes keyboard focus so you can keep typing without clicking. Follow-up answers go to history with their question, marked `↳`
 - **Stop / Retry** — stop a running answer and keep what has arrived; after a stop or an error, retry with one click
-- **Resizable** — drag to resize the result panel; the size is remembered, and pulled back on screen when it no longer fits the display in use
+- **Resizable & zoomable** — drag to resize the result panel (remembered and pulled back on screen when needed); press ⌘+/⌘-/⌘0 to zoom font size (11–22 pt, persisted)
 - **Markdown rendering** — bold, italic, inline code, links, headings, bullet/numbered lists, horizontal rules and block quotes are rendered; fenced code blocks appear in a monospaced rounded card, and tables are shown in a monospaced font (other block syntax is shown verbatim)
-- **Reasoning models** — the thinking trace (reasoning_content, e.g. deepseek-reasoner) streams above the answer; history and copy keep the final answer
+- **Reasoning models** — the thinking trace (reasoning_content, e.g. deepseek-reasoner) streams above the answer and can be collapsed/expanded inline; history and copy keep the final answer
+- **Launch at login** — native `SMAppService` toggle in Settings (when running from `AskAI.app`)
 - **Custom hotkey** — record it right in the menu; the recorder tells you when another app already uses the combination
 - **Any OpenAI-compatible endpoint** — DeepSeek, OpenAI, Ollama, etc. Settings offers the common addresses as presets, and endpoints on `localhost` need no API key
 - **Answer language of its own** — answers follow the UI language by default; choose Chinese or English separately in Settings
@@ -80,6 +82,7 @@ Settings and the CLI share the same `defaults` preferences. Test Connection send
 | Copy fallback wait | `defaults write com.dsh.AskAI copyTimeoutMs 350` (how long to wait for ⌘C before falling back to screenshot OCR; raise it for slow apps, 100–5000) |
 | Answer language | `defaults write com.dsh.AskAI answerLanguage zh` (or `en`; unset = follow the UI language) |
 | Save history | `defaults write com.dsh.AskAI saveHistory false` (stop adding entries; existing ones stay until you clear them) |
+| Panel font size | `defaults write com.dsh.AskAI panelFontSize 14` (11–22 pt; also changed via ⌘+/⌘-/⌘0 in the panel) |
 
 Language fallback: any preferred system language other than Chinese falls back to the English UI,
 and the Translate mode targets English in that case (English input is translated into Simplified
