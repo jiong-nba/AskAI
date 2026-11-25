@@ -29,6 +29,7 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate, AVSpeechSynthesizerDelega
 
     /// 追问时最多带上的最近轮数：请求体不随对话无限增长
     static let contextLimit = 8
+    private static let answerFont = NSFont.systemFont(ofSize: 14)
 
     private let source: String
     private let total: Int
@@ -40,7 +41,7 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate, AVSpeechSynthesizerDelega
     private let modePicker = NSPopUpButton()
     private let rangeLabel = NSTextField(labelWithString: "")
     private let fullButton = NSButton()
-    private let textView = NSTextView()
+    private let textView = NSTextView(usingTextLayoutManager: false)
     private let questionField = NSTextField()
     private let sendButton = NSButton()
     private let copyButton = NSButton()
@@ -126,10 +127,14 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate, AVSpeechSynthesizerDelega
         modePicker.action = #selector(choosePanelMode)
         modePicker.setAccessibilityLabel(L("本次提问模式", "Mode for this selection"))
         fullButton.title = L("总结全文", "Summarize All")
+        fullButton.controlSize = .small
+        fullButton.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        fullButton.image = NSImage(systemSymbolName: "text.magnifyingglass", accessibilityDescription: nil)
+        fullButton.imagePosition = .imageLeading
         fullButton.target = self
         fullButton.action = #selector(summarizeAll)
         fullButton.bezelStyle = .rounded
-        rangeLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        rangeLabel.font = .monospacedDigitSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
         rangeLabel.textColor = .secondaryLabelColor
         let spacer = NSView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -137,36 +142,53 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate, AVSpeechSynthesizerDelega
         header.alignment = .centerY
         header.spacing = 8
 
+        let topSeparator = NSBox()
+        topSeparator.boxType = .separator
+
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
+        scroll.borderType = .noBorder
+        textView.textContainer?.replaceLayoutManager(CodeBlockLayoutManager())
         textView.isEditable = false
         textView.isVerticallyResizable = true
         textView.autoresizingMask = [.width]
         textView.textContainer?.widthTracksTextView = true
-        textView.textContainerInset = NSSize(width: 8, height: 6)
-        textView.font = .systemFont(ofSize: 14)
+        textView.textContainerInset = NSSize(width: 14, height: 10)
+        textView.font = Self.answerFont
         textView.textColor = .textColor        // 同样是动态色，避免深色模式下黑字黑底
         scroll.documentView = textView
 
+        let bottomSeparator = NSBox()
+        bottomSeparator.boxType = .separator
+
         questionField.placeholderString = L("追问…（回车发送）", "Ask a follow-up… (Return to send)")
+        questionField.bezelStyle = .roundedBezel
         questionField.font = .systemFont(ofSize: 13)
         questionField.delegate = self
         questionField.setContentHuggingPriority(.defaultLow, for: .horizontal)
         questionField.setAccessibilityLabel(L("追问", "Follow-up question"))
         sendButton.title = L("发送", "Send")
+        sendButton.image = NSImage(systemSymbolName: "paperplane.fill", accessibilityDescription: nil)
+        sendButton.imagePosition = .imageOnly
+        sendButton.bezelStyle = .rounded
+        sendButton.toolTip = L("发送（回车）", "Send (Return)")
         sendButton.target = self
         sendButton.action = #selector(sendFollowUp)
         let prompt = NSStackView(views: [questionField, sendButton])
+        prompt.spacing = 6
 
-        copyButton.title = L("复制", "Copy")
-        copyButton.bezelStyle = .rounded
+        for button in [speakButton, copyButton, stopOrRetryButton] {
+            button.controlSize = .small
+            button.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+            button.imagePosition = .imageLeading
+            button.bezelStyle = .recessed
+        }
+        setCopyButton(copied: false)
         copyButton.target = self
         copyButton.action = #selector(copyAnswer)
-        speakButton.title = L("朗读", "Speak")
-        speakButton.bezelStyle = .rounded
+        setSpeakButton(speaking: false)
         speakButton.target = self
         speakButton.action = #selector(speakAnswer)
-        stopOrRetryButton.bezelStyle = .rounded
         stopOrRetryButton.target = self
         stopOrRetryButton.action = #selector(stopOrRetry)
         stopOrRetryButton.isHidden = true
@@ -176,24 +198,30 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate, AVSpeechSynthesizerDelega
 
         let view = NSView()
         contentView = view
-        for child in [header, scroll, prompt, actions] {
+        for child in [header, topSeparator, scroll, bottomSeparator, prompt, actions] {
             child.translatesAutoresizingMaskIntoConstraints = false
             view.addSubview(child)
         }
         NSLayoutConstraint.activate([
-            header.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 10),
-            header.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -10),
+            header.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+            header.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
             header.topAnchor.constraint(equalTo: view.topAnchor, constant: 8),
-            scroll.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 8),
+            topSeparator.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 8),
+            topSeparator.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            topSeparator.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scroll.topAnchor.constraint(equalTo: topSeparator.bottomAnchor),
             scroll.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            scroll.bottomAnchor.constraint(equalTo: prompt.topAnchor, constant: -4),
-            prompt.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 10),
-            prompt.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -10),
-            prompt.bottomAnchor.constraint(equalTo: actions.topAnchor, constant: -2),
-            actions.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 10),
-            actions.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -10),
-            actions.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -6)
+            scroll.bottomAnchor.constraint(equalTo: bottomSeparator.topAnchor),
+            bottomSeparator.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            bottomSeparator.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            prompt.topAnchor.constraint(equalTo: bottomSeparator.bottomAnchor, constant: 8),
+            prompt.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+            prompt.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+            actions.topAnchor.constraint(equalTo: prompt.bottomAnchor, constant: 6),
+            actions.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+            actions.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+            actions.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -8)
         ])
     }
 
@@ -355,7 +383,7 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate, AVSpeechSynthesizerDelega
         lastStreamRender = nil
         if speaker.isSpeaking {
             speaker.stopSpeaking(at: .immediate)
-            speakButton.title = L("朗读", "Speak")
+            setSpeakButton(speaking: false)
         }
     }
 
@@ -419,113 +447,55 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate, AVSpeechSynthesizerDelega
         renderScheduled = nil
         if let status { failure = status }
         answerText = Self.transcript(turns: turns, pending: pendingTurn, status: nil)
-        var shown = Self.transcript(turns: turns, pending: pendingTurn, status: failure)
+
+        let base = Self.answerFont
+        let smallFont = NSFont.systemFont(ofSize: max(10, base.pointSize - 1))
+        let out = NSMutableAttributedString()
+
         if !latestReasoning.isEmpty {
-            shown = L("💭 思考过程", "💭 Reasoning") + "\n" + latestReasoning + "\n\n————\n\n" + shown
+            let headerFont = NSFont.systemFont(ofSize: max(10, base.pointSize - 1), weight: .semibold)
+            let headerStyle = NSMutableParagraphStyle()
+            headerStyle.lineSpacing = 3
+            out.append(NSAttributedString(string: L("💭 思考过程", "💭 Reasoning") + "\n", attributes: [
+                .font: headerFont,
+                .foregroundColor: NSColor.secondaryLabelColor,
+                .paragraphStyle: headerStyle,
+            ]))
+            let body = NSMutableAttributedString(attributedString: Self.renderedAnswer(latestReasoning, baseFont: smallFont))
+            body.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: NSRange(location: 0, length: body.length))
+            out.append(body)
+            out.append(Self.renderedAnswer("\n\n————\n\n", baseFont: base))
         }
-        if !notice.isEmpty { shown += "\n\n⚠️ " + notice }
+
+        out.append(Self.renderedAnswer(answerText, baseFont: base))
+
+        if let failure {
+            let prefix = answerText.isEmpty ? "" : "\n\n"
+            let color: NSColor = failure.hasPrefix("❌") ? .systemRed : .secondaryLabelColor
+            out.append(NSAttributedString(string: prefix + failure, attributes: [
+                .font: smallFont,
+                .foregroundColor: color,
+            ]))
+        }
+        if !notice.isEmpty {
+            out.append(NSAttributedString(string: "\n\n⚠️ " + notice, attributes: [
+                .font: smallFont,
+                .foregroundColor: NSColor.secondaryLabelColor,
+            ]))
+        }
+
         let atBottom = textView.visibleRect.maxY >= textView.bounds.height - 48
-        textView.textStorage?.setAttributedString(
-            Self.renderedAnswer(shown, baseFont: textView.font ?? .systemFont(ofSize: 14)))
+        textView.textStorage?.setAttributedString(out)
         if atBottom { textView.scrollToEndOfDocument(nil) }
+
         stopOrRetryButton.isHidden = !awaiting && failure == nil
         stopOrRetryButton.title = awaiting ? L("停止", "Stop") : L("重试", "Retry")
+        stopOrRetryButton.image = NSImage(
+            systemSymbolName: awaiting ? "stop.fill" : "arrow.clockwise",
+            accessibilityDescription: nil
+        )
         questionField.isEnabled = !awaiting
         sendButton.isEnabled = !awaiting
-    }
-
-    /// 回答的富文本：围栏代码块用等宽字体和浅底色，其余部分按行内 Markdown 渲染。
-    nonisolated static func renderedAnswer(_ text: String, baseFont: NSFont) -> NSAttributedString {
-        let result = NSMutableAttributedString()
-        for segment in splitCodeBlocks(text) {
-            if segment.isCode {
-                result.append(codeBlock(segment.text, baseFont: baseFont))
-            } else {
-                result.append(renderedInline(segment.text, baseFont: baseFont))
-            }
-        }
-        return result
-    }
-
-    /// 把回答切成「普通段落」和「围栏代码块」。围栏行本身不显示，它占的那一处换行保留，
-    /// 所以其余各行的位置不变。流式输出时代码块常常还没闭合：从开头的围栏到文末都算代码；
-    /// 每次都按全文重新切分，闭合之后自然恢复。
-    nonisolated static func splitCodeBlocks(_ text: String) -> [(text: String, isCode: Bool)] {
-        guard !text.isEmpty else { return [] }
-        var segments: [(text: String, isCode: Bool)] = []
-        var lines: [String] = []
-        var inCode = false
-        func close() {
-            guard !lines.isEmpty else { return }
-            segments.append((lines.joined(separator: "\n"), inCode))
-            lines = []
-        }
-        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
-            if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
-                lines.append("")   // keep the line break the fence occupied
-                close()
-                inCode.toggle()
-            } else {
-                lines.append(String(line))
-            }
-        }
-        close()
-        return segments
-    }
-
-    /// 代码块：等宽字体、原样保留，不做 Markdown 解析（代码里的 * 和 _ 不该被当成语法）。
-    /// 底色不画在结尾的换行上，免得代码块下面多出一条空的高亮带。
-    private nonisolated static func codeBlock(_ text: String, baseFont: NSFont) -> NSAttributedString {
-        let font = NSFont.monospacedSystemFont(ofSize: baseFont.pointSize, weight: .regular)
-        let highlighted: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.textColor,
-                                                          .backgroundColor: NSColor.unemphasizedSelectedContentBackgroundColor]
-        let result = NSMutableAttributedString()
-        if text.hasSuffix("\n") {
-            result.append(NSAttributedString(string: String(text.dropLast()), attributes: highlighted))
-            result.append(NSAttributedString(string: "\n", attributes: [.font: font, .foregroundColor: NSColor.textColor]))
-        } else {
-            result.append(NSAttributedString(string: text, attributes: highlighted))
-        }
-        return result
-    }
-
-    /// 行内 Markdown 渲染：粗体 / 斜体 / 行内代码 / 链接，保留原有换行——
-    /// 聊天式回答不适合块级语法的段落重排；解析失败回落纯文本。
-    nonisolated static func renderedInline(_ text: String, baseFont: NSFont) -> NSAttributedString {
-        let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        guard let parsed = try? AttributedString(markdown: text, options: options) else {
-            return NSAttributedString(string: text,
-                                      attributes: [.font: baseFont,
-                                                   .foregroundColor: NSColor.textColor])
-        }
-        // 解析结果不带字体（直接转 NSAttributedString 也不会自动把 .strong 变粗体），
-        // 按行内语义逐 run 套字体再拼起来；无语义的片段拿基础字体，避免掉回系统默认字号。
-        // 只读属性、不往 AttributedString 上回写：回写要经过 key path，严格并发检查不允许
-        let result = NSMutableAttributedString()
-        for run in parsed.runs {
-            // 用属性类型下标读取：点语法的访问器经由 key path 实现，严格并发检查不允许
-            let intent = run[AttributeScopes.FoundationAttributes.InlinePresentationIntentAttribute.self] ?? []
-            var font = baseFont
-            if intent.contains(.stronglyEmphasized) {   // **粗体**
-                font = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
-            }
-            if intent.contains(.emphasized) {           // *斜体**
-                font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)
-            }
-            if intent.contains(.code) {
-                font = NSFont.monospacedSystemFont(ofSize: baseFont.pointSize, weight: .regular)
-            }
-            var attributes: [NSAttributedString.Key: Any] = [
-                .font: font,
-                // 富文本缺省不带前景色时 NSTextView 会按黑色渲染，深色模式下变成黑字黑底；
-                // 显式给系统动态文字色，随明暗外观自动切换
-                .foregroundColor: NSColor.textColor,
-            ]
-            // 链接要带上：浮窗里的链接靠它才能点开
-            if let link = run[AttributeScopes.FoundationAttributes.LinkAttribute.self] { attributes[.link] = link }
-            result.append(NSAttributedString(string: String(parsed[run.range].characters), attributes: attributes))
-        }
-        return result
     }
 
     /// 朗读用的纯文本：围栏代码块的围栏行整行跳过，其余去掉行内 Markdown 符号（链接只保留文字）；
@@ -561,7 +531,7 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate, AVSpeechSynthesizerDelega
     override func close() {
         copyFeedback?.cancel()
         copyFeedback = nil
-        copyButton.title = L("复制", "Copy")
+        setCopyButton(copied: false)
         cancelRequest()
         super.close()
     }
@@ -623,17 +593,29 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate, AVSpeechSynthesizerDelega
         }
     }
 
+    private func setCopyButton(copied: Bool) {
+        copyButton.title = copied ? L("已复制 ✓", "Copied ✓") : L("复制", "Copy")
+        copyButton.image = NSImage(systemSymbolName: copied ? "checkmark" : "doc.on.doc",
+                                   accessibilityDescription: nil)
+    }
+
+    private func setSpeakButton(speaking: Bool) {
+        speakButton.title = speaking ? L("停止朗读", "Stop Speaking") : L("朗读", "Speak")
+        speakButton.image = NSImage(systemSymbolName: speaking ? "stop.fill" : "speaker.wave.2",
+                                    accessibilityDescription: nil)
+    }
+
     /// 复制整段对话的 Markdown 原文：粘贴到别处保留语法，不带思考过程和状态行。
     /// 用按钮文字变化给出安静的视觉反馈，不响系统错误提示音。
     @objc private func copyAnswer() {
         pasteboard.clearContents()
         pasteboard.setString(answerText, forType: .string)
         copyFeedback?.cancel()
-        copyButton.title = L("已复制 ✓", "Copied ✓")
+        setCopyButton(copied: true)
         copyFeedback = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(1_200))
             guard let self, !Task.isCancelled else { return }
-            self.copyButton.title = L("复制", "Copy")
+            self.setCopyButton(copied: false)
             self.copyFeedback = nil
         }
     }
@@ -642,7 +624,7 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate, AVSpeechSynthesizerDelega
     @objc private func speakAnswer() {
         if speaker.isSpeaking {
             speaker.stopSpeaking(at: .immediate)
-            speakButton.title = L("朗读", "Speak")
+            setSpeakButton(speaking: false)
             return
         }
         let answers = (turns + [pendingTurn].compactMap { $0 }).map(\.answer).filter { !$0.isEmpty }
@@ -652,15 +634,15 @@ final class ResultPanel: NSPanel, NSTextFieldDelegate, AVSpeechSynthesizerDelega
         let hasCJK = text.unicodeScalars.contains { (0x4E00...0x9FFF).contains($0.value) }
         utterance.voice = AVSpeechSynthesisVoice(language: hasCJK ? "zh-CN" : "en-US")
         utterance.rate = 0.5
-        speakButton.title = L("停止朗读", "Stop Speaking")
+        setSpeakButton(speaking: true)
         speaker.speak(utterance)
     }
 
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-        Task { @MainActor [weak self] in self?.speakButton.title = L("朗读", "Speak") }
+        Task { @MainActor [weak self] in self?.setSpeakButton(speaking: false) }
     }
 
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
-        Task { @MainActor [weak self] in self?.speakButton.title = L("朗读", "Speak") }
+        Task { @MainActor [weak self] in self?.setSpeakButton(speaking: false) }
     }
 }
