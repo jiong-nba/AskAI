@@ -34,19 +34,20 @@ func runCheck() -> Never {
     exit(0)
 }
 
-/// --stream 的输出状态：已经打印过多少个字符。回调是 @Sendable 闭包，不能捕获可变的局部变量，
-/// 所以计数放在一个带锁的对象里。
+/// --stream 的输出状态：已经打印过的 UTF-8 字节偏移。回调是 @Sendable 闭包，不能捕获可变的局部变量，
+/// 所以计数放在一个带锁的对象里；按 UTF-8 索引切片避免每次从头遍历字符串。
 private final class StreamPrinter: @unchecked Sendable {
     private let lock = NSLock()
-    private var printed = 0
+    private var printedBytes = 0
 
     func show(_ text: String) {
         lock.lock()
         defer { lock.unlock() }
-        // 只打印新增的部分；按字符而不是字节计数，免得把一个多字节字符切成两半
-        let addition = text.dropFirst(printed)
-        printed += addition.count
-        print(addition, terminator: "")
+        let totalBytes = text.utf8.count
+        guard totalBytes > printedBytes,
+              let start = text.utf8.index(text.startIndex, offsetBy: printedBytes, limitedBy: text.endIndex) else { return }
+        printedBytes = totalBytes
+        print(text[start...], terminator: "")
         fflush(stdout)   // 输出到管道时 stdout 是整块缓冲的，不冲掉就看不到「边到边」
     }
 }

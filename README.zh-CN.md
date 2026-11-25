@@ -179,7 +179,7 @@ tccutil reset Accessibility com.dsh.AskAI
 
 | 环节 | 做法 |
 |---|---|
-| 全局快捷键 | [HotKey](https://github.com/soffes/HotKey) |
+| 全局快捷键 | Carbon `RegisterEventHotKey` |
 | 取选中文本 | 优先直接读辅助功能选区；回退时模拟 ⌘C，检测剪贴板更新后还原 |
 | 截图 OCR | `screencapture -i` + Vision 框架 |
 | 流式输出 | `URLSession.bytes` 逐行解析 SSE |

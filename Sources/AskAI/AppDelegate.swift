@@ -136,10 +136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                     it.target = self
                     it.representedObject = h
                     // 标题只取了开头，完整的原文放在悬停提示里
-                    it.toolTip = h.source
-                        .replacingOccurrences(of: "\r\n", with: " ")
-                        .replacingOccurrences(of: "\n", with: " ")
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    it.toolTip = h.source.flattenedLine
                     hist.addItem(it)
                 }
                 hist.addItem(NSMenuItem.separator())
@@ -154,10 +151,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     /// 二十条记录光看前 24 个字分不出来。
     static func historyLabel(_ entry: HistoryEntry, now: Date = Date()) -> String {
         // 追问的条目用「↳ 问题」当标题：它的 source 和前一条相同，看不出区别
-        let text = (entry.question.map { "↳ " + $0 } ?? entry.source)
-            .replacingOccurrences(of: "\r\n", with: " ")
-            .replacingOccurrences(of: "\n", with: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = (entry.question.map { "↳ " + $0 } ?? entry.source).flattenedLine
         let headline = text.count > 24 ? String(text.prefix(24)) + "…" : text
         let detail = historyMode(entry.mode).title + " · " + relativeTime(from: entry.time, now: now)
         return appIsChinese ? "\(headline)（\(detail)）" : "\(headline)  (\(detail))"
@@ -186,31 +180,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     /// 启动失败则保持运行，不会出现"旧的一退、新的一直没起来"。
     /// 同一二进制重启不会改变签名，所以辅助功能授权保持不变。
     @objc private func relaunch() {
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        task.arguments = ["-n", Bundle.main.bundleURL.path]
-        do {
-            try task.run()
-        } catch {
-            NSSound.beep()
-            return
-        }
-        task.waitUntilExit()
-
-        // 再确认新实例真的起来了（除了自己还有同 bundle id 的进程）才退出，
-        // 最多等 2 秒；没起来就保持运行，绝不出现"旧的退了新的没有"。
+        let bundlePath = Bundle.main.bundleURL.path
         let bundleID = Bundle.main.bundleIdentifier ?? "com.dsh.AskAI"
-        var newInstanceUp = false
-        for _ in 0..<10 {
-            if NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).count > 1 {
-                newInstanceUp = true
-                break
+        Task { @MainActor in
+            let launched = await Task.detached {
+                let task = Process()
+                task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+                task.arguments = ["-n", bundlePath]
+                do {
+                    try task.run()
+                    task.waitUntilExit()
+                    return task.terminationStatus == 0
+                } catch {
+                    return false
+                }
+            }.value
+            guard launched else { NSSound.beep(); return }
+
+            // 再确认新实例真的起来了（除了自己还有同 bundle id 的进程）才退出，
+            // 最多等 2 秒；没起来就保持运行，绝不出现"旧的退了新的没有"。
+            for _ in 0..<10 {
+                if NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).count > 1 {
+                    NSApp.terminate(nil)
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(200))
             }
-            usleep(200_000)
-        }
-        if newInstanceUp {
-            NSApp.terminate(nil)
-        } else {
             NSSound.beep()
         }
     }
@@ -239,14 +234,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         }
     }
 
-    /// 快捷键没注册上要明说，别让用户对着“按了没反应”猜。
-    private func showHotKeyRegistrationFailure() {
+    private func showAlert(title: String, message: String) {
         let alert = NSAlert()
-        alert.messageText = L("快捷键 \(hotkeyDesc) 未能注册", "Hotkey \(hotkeyDesc) could not be registered")
-        alert.informativeText = L("它可能已被其他应用占用，或这个按键不受支持。请到菜单栏 🤖 →「设置快捷键…」换一个组合。",
-                                  "It may already be taken by another app, or the key is not supported. Choose another combination via 🤖 → Set Hotkey….")
+        alert.messageText = title
+        alert.informativeText = message
         NSApp.activate(ignoringOtherApps: true)
         alert.runModal()
+    }
+
+    /// 快捷键没注册上要明说，别让用户对着“按了没反应”猜。
+    private func showHotKeyRegistrationFailure() {
+        showAlert(title: L("快捷键 \(hotkeyDesc) 未能注册", "Hotkey \(hotkeyDesc) could not be registered"),
+                  message: L("它可能已被其他应用占用，或这个按键不受支持。请到菜单栏 🤖 →「设置快捷键…」换一个组合。",
+                             "It may already be taken by another app, or the key is not supported. Choose another combination via 🤖 → Set Hotkey…."))
     }
 
     private var capturingSelection = false
@@ -281,11 +281,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             }.value
             guard outcome.shot else { return }   // 取消截图则静默返回
             guard let text = outcome.text else {
-                let alert = NSAlert()
-                alert.messageText = L("没有识别到文字", "No text found")
-                alert.informativeText = L("选区内未检测到可识别的文本，请重新框选。", "No recognizable text in that region. Try selecting it again.")
-                NSApp.activate(ignoringOtherApps: true)
-                alert.runModal()
+                showAlert(title: L("没有识别到文字", "No text found"),
+                          message: L("选区内未检测到可识别的文本，请重新框选。", "No recognizable text in that region. Try selecting it again."))
                 return
             }
             runQuery(source: text)
@@ -399,11 +396,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         return L("键\(event.keyCode)", "Key\(event.keyCode)")
     }
 
-    private func closeRecorder() {
+    private func tearDownRecorder() {
         if let m = keyMonitor { NSEvent.removeMonitor(m); keyMonitor = nil }
         recording = false
-        recorderPanel?.close()
         recorderPanel = nil
+    }
+
+    private func closeRecorder() {
+        let panel = recorderPanel
+        tearDownRecorder()
+        panel?.close()
     }
 
     // MARK: 结果窗的生命周期
@@ -422,9 +424,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             if ConnectionSettings.current().isConfigured { promptForAccessibilityIfNeeded() }
         }
         if window === recorderPanel {
-            if let m = keyMonitor { NSEvent.removeMonitor(m); keyMonitor = nil }
-            recording = false
-            recorderPanel = nil
+            tearDownRecorder()
         }
         if window === modesWindow { modesWindow = nil }
         if window === lastPanel {

@@ -4,14 +4,8 @@ import PackageDescription
 let package = Package(
     name: "AskAI",
     platforms: [.macOS(.v13)],
-    dependencies: [
-        .package(url: "https://github.com/soffes/HotKey", from: "0.2.0"),
-    ],
     targets: [
-        .executableTarget(
-            name: "AskAI",
-            dependencies: ["HotKey"]
-        ),
+        .executableTarget(name: "AskAI"),
         .testTarget(name: "AskAITests", dependencies: ["AskAI"]),
     ]
 )

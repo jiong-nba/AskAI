@@ -1,9 +1,4 @@
-import SwiftUI
-
-struct AskError: LocalizedError {
-    let errorDescription: String?
-    init(_ text: String) { errorDescription = text }
-}
+import AppKit
 
 /// 常见服务商的 chat completions 地址，第一次配置时不用去翻文档。模型名各家变得快，不预填。
 struct ProviderPreset: Identifiable, Equatable {
@@ -165,101 +160,263 @@ struct ConnectionDraft: Equatable {
     }
 }
 
-struct ConnectionSettingsView: View {
-    @State private var draft = ConnectionDraft()
-    /// 选中的接口预设；空串表示自定义地址。
-    @State private var preset = ProviderPreset.matching(endpoint: ConnectionDraft().endpoint)?.name ?? ""
-    @State private var status = ""
-    @State private var test: Task<Void, Never>?
+@MainActor
+private final class ConnectionSettingsViewController: NSViewController, NSTextFieldDelegate {
+    private var draft = ConnectionDraft()
     private let environmentKey = ProcessInfo.processInfo.environment["ASKAI_KEY"]
-    let close: () -> Void
+    private let closeAction: () -> Void
+    private var testTask: Task<Void, Never>?
 
-    var body: some View {
-        Form {
-            Section(L("接口", "Endpoint")) {
-                Picker(L("预设", "Preset"), selection: $preset) {
-                    Text(L("自定义", "Custom")).tag("")
-                    ForEach(ProviderPreset.all) { Text($0.name).tag($0.name) }
-                }
-                .onChange(of: preset) { name in
-                    if let chosen = ProviderPreset.all.first(where: { $0.name == name }) {
-                        draft.endpoint = chosen.url
-                    }
-                }
-                TextField(L("接口地址", "Endpoint"), text: $draft.endpoint)
-                    .onChange(of: draft.endpoint) { endpoint in
-                        preset = ProviderPreset.matching(endpoint: endpoint)?.name ?? ""
-                    }
-                TextField(L("模型", "Model"), text: $draft.model)
-                if !ConnectionSettings.hasEnvironmentKey(environmentKey) {
-                    SecureField("API Key", text: $draft.savedKey)
-                        .help(L("本机接口（localhost）可以留空", "Optional for endpoints on localhost"))
-                } else {
-                    LabeledContent("API Key", value: L("由 ASKAI_KEY 提供", "Provided by ASKAI_KEY"))
-                }
-                TextField(L("全文总结上限（字符）", "Full-summary limit (characters)"), text: $draft.limit)
-                TextField(L("Temperature（-1 = 不发送，用服务商默认值）", "Temperature (-1 = leave it to the provider)"),
-                          text: $draft.temperature)
-            }
-            Section(L("问答", "Answers")) {
-                Picker(L("回答语言", "Answer language"), selection: $draft.answerLanguage) {
-                    Text(L("跟随界面", "Follow the UI")).tag("")
-                    Text("简体中文").tag("zh")
-                    Text("English").tag("en")
-                }
-                Toggle(L("保存历史记录", "Save history"), isOn: $draft.savesHistory)
-            }
-            Text(status).font(.callout).lineLimit(3).textSelection(.enabled)
-                .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
-                .help(status)
-            HStack {
-                Button(L("测试连接", "Test Connection"), action: checkConnection)
-                    .disabled(test != nil)
-                Spacer()
-                Button(L("取消", "Cancel"), action: close).keyboardShortcut(.cancelAction)
-                Button(L("保存", "Save")) {
-                    do {
-                        try draft.save(environmentKey: environmentKey)
-                        close()
-                    } catch { status = error.localizedDescription }
-                }.keyboardShortcut(.defaultAction)
-            }
+    private let presetPopup = NSPopUpButton()
+    private let endpointField = NSTextField()
+    private let modelField = NSTextField()
+    private let keyField = NSSecureTextField()
+    private let limitField = NSTextField()
+    private let temperatureField = NSTextField()
+    private let languagePopup = NSPopUpButton()
+    private let saveHistoryCheckbox = NSButton(checkboxWithTitle: L("保存历史记录", "Save history"), target: nil, action: nil)
+    private let statusLabel = NSTextField(wrappingLabelWithString: "")
+    private let testButton = NSButton()
+
+    init(close: @escaping () -> Void) {
+        self.closeAction = close
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func loadView() {
+        let root = NSView()
+        root.translatesAutoresizingMaskIntoConstraints = false
+        view = root
+
+        presetPopup.addItem(withTitle: L("自定义", "Custom"))
+        presetPopup.lastItem?.representedObject = ""
+        for preset in ProviderPreset.all {
+            presetPopup.addItem(withTitle: preset.name)
+            presetPopup.lastItem?.representedObject = preset.name
         }
-        .padding(20).frame(width: 510)
-        .onChange(of: draft) { _ in resetTest() }
-        .onDisappear { resetTest() }
+        presetPopup.target = self
+        presetPopup.action = #selector(presetChanged)
+
+        endpointField.stringValue = draft.endpoint
+        endpointField.delegate = self
+        modelField.stringValue = draft.model
+        modelField.delegate = self
+        limitField.stringValue = draft.limit
+        limitField.delegate = self
+        temperatureField.stringValue = draft.temperature
+        temperatureField.delegate = self
+
+        let keyControl: NSView
+        if ConnectionSettings.hasEnvironmentKey(environmentKey) {
+            let note = NSTextField(labelWithString: L("由 ASKAI_KEY 提供", "Provided by ASKAI_KEY"))
+            note.textColor = .secondaryLabelColor
+            keyControl = note
+        } else {
+            keyField.stringValue = draft.savedKey
+            keyField.placeholderString = L("本机接口（localhost）可以留空", "Optional for endpoints on localhost")
+            keyField.toolTip = keyField.placeholderString
+            keyField.delegate = self
+            keyControl = keyField
+        }
+
+        languagePopup.addItem(withTitle: L("跟随界面", "Follow the UI"))
+        languagePopup.lastItem?.representedObject = ""
+        languagePopup.addItem(withTitle: "简体中文")
+        languagePopup.lastItem?.representedObject = "zh"
+        languagePopup.addItem(withTitle: "English")
+        languagePopup.lastItem?.representedObject = "en"
+        if let idx = languagePopup.itemArray.firstIndex(where: { ($0.representedObject as? String) == draft.answerLanguage }) {
+            languagePopup.selectItem(at: idx)
+        }
+        languagePopup.target = self
+        languagePopup.action = #selector(fieldChanged)
+
+        saveHistoryCheckbox.state = draft.savesHistory ? .on : .off
+        saveHistoryCheckbox.target = self
+        saveHistoryCheckbox.action = #selector(fieldChanged)
+
+        syncPresetSelection()
+
+        func row(_ title: String, _ control: NSView) -> [NSView] {
+            let label = NSTextField(labelWithString: title)
+            label.alignment = .right
+            label.font = .systemFont(ofSize: 13)
+            label.setContentHuggingPriority(.required, for: .horizontal)
+            control.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            return [label, control]
+        }
+
+        let separator = NSBox()
+        separator.boxType = .separator
+
+        let grid = NSGridView(views: [
+            row(L("预设", "Preset"), presetPopup),
+            row(L("接口地址", "Endpoint"), endpointField),
+            row(L("模型", "Model"), modelField),
+            row("API Key", keyControl),
+            row(L("全文总结上限（字符）", "Full-summary limit (characters)"), limitField),
+            row(L("Temperature（-1 = 不发送，用服务商默认值）", "Temperature (-1 = leave it to the provider)"), temperatureField),
+        ])
+        grid.columnSpacing = 12
+        grid.rowSpacing = 10
+        grid.column(at: 0).xPlacement = .trailing
+        grid.column(at: 1).xPlacement = .fill
+
+        let answerGrid = NSGridView(views: [
+            row(L("回答语言", "Answer language"), languagePopup),
+            row("", saveHistoryCheckbox),
+        ])
+        answerGrid.columnSpacing = 12
+        answerGrid.rowSpacing = 10
+        answerGrid.column(at: 0).xPlacement = .trailing
+        answerGrid.column(at: 1).xPlacement = .leading
+
+        statusLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        statusLabel.textColor = .secondaryLabelColor
+        statusLabel.isSelectable = true
+        statusLabel.maximumNumberOfLines = 3
+        statusLabel.lineBreakMode = .byTruncatingTail
+        statusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        testButton.title = L("测试连接", "Test Connection")
+        testButton.bezelStyle = .rounded
+        testButton.target = self
+        testButton.action = #selector(checkConnection)
+
+        let cancelButton = NSButton(title: L("取消", "Cancel"), target: self, action: #selector(cancel))
+        cancelButton.bezelStyle = .rounded
+        cancelButton.keyEquivalent = "\u{1b}"
+
+        let saveButton = NSButton(title: L("保存", "Save"), target: self, action: #selector(save))
+        saveButton.bezelStyle = .rounded
+        saveButton.keyEquivalent = "\r"
+
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let actions = NSStackView(views: [testButton, spacer, cancelButton, saveButton])
+        actions.alignment = .centerY
+        actions.spacing = 8
+
+        let stack = NSStackView(views: [grid, separator, answerGrid, statusLabel, actions])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 12
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            root.widthAnchor.constraint(equalToConstant: 510),
+            stack.topAnchor.constraint(equalTo: root.topAnchor, constant: 20),
+            stack.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -20),
+            stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 20),
+            stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -20),
+            grid.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            separator.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            answerGrid.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            statusLabel.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            statusLabel.heightAnchor.constraint(greaterThanOrEqualToConstant: 32),
+            actions.widthAnchor.constraint(equalTo: stack.widthAnchor),
+        ])
+    }
+
+    override func viewWillDisappear() {
+        super.viewWillDisappear()
+        resetTest()
+    }
+
+    private func syncDraftFromFields() {
+        draft.endpoint = endpointField.stringValue
+        draft.model = modelField.stringValue
+        if !ConnectionSettings.hasEnvironmentKey(environmentKey) {
+            draft.savedKey = keyField.stringValue
+        }
+        draft.limit = limitField.stringValue
+        draft.temperature = temperatureField.stringValue
+        draft.answerLanguage = languagePopup.selectedItem?.representedObject as? String ?? ""
+        draft.savesHistory = saveHistoryCheckbox.state == .on
+    }
+
+    private func syncPresetSelection() {
+        let name = ProviderPreset.matching(endpoint: endpointField.stringValue)?.name ?? ""
+        if let idx = presetPopup.itemArray.firstIndex(where: { ($0.representedObject as? String) == name }) {
+            presetPopup.selectItem(at: idx)
+        }
     }
 
     private func resetTest() {
-        test?.cancel()
-        test = nil
-        status = ""
+        testTask?.cancel()
+        testTask = nil
+        testButton.isEnabled = true
+        statusLabel.stringValue = ""
+        statusLabel.toolTip = nil
     }
 
-    private func checkConnection() {
+    @objc private func presetChanged() {
+        if let name = presetPopup.selectedItem?.representedObject as? String,
+           let preset = ProviderPreset.all.first(where: { $0.name == name }) {
+            endpointField.stringValue = preset.url
+        }
+        resetTest()
+    }
+
+    @objc private func fieldChanged() {
+        resetTest()
+    }
+
+    func controlTextDidChange(_ obj: Notification) {
+        if (obj.object as? NSTextField) === endpointField {
+            syncPresetSelection()
+        }
+        resetTest()
+    }
+
+    @objc private func checkConnection() {
+        syncDraftFromFields()
         let candidate = draft
-        status = L("正在测试…", "Testing…")
-        test = Task { @MainActor in
+        statusLabel.stringValue = L("正在测试…", "Testing…")
+        statusLabel.toolTip = nil
+        testButton.isEnabled = false
+        testTask = Task { @MainActor in
             do {
                 try await candidate.testConnection(environmentKey: environmentKey)
                 guard !Task.isCancelled else { return }
-                status = L("连接成功。", "Connection succeeded.")
+                statusLabel.stringValue = L("连接成功。", "Connection succeeded.")
             } catch {
                 guard !Task.isCancelled else { return }
-                status = error.localizedDescription
+                statusLabel.stringValue = error.localizedDescription
+                statusLabel.toolTip = error.localizedDescription
             }
-            test = nil
+            testButton.isEnabled = true
+            testTask = nil
+        }
+    }
+
+    @objc private func cancel() {
+        closeAction()
+    }
+
+    @objc private func save() {
+        syncDraftFromFields()
+        do {
+            try draft.save(environmentKey: environmentKey)
+            closeAction()
+        } catch {
+            statusLabel.stringValue = error.localizedDescription
+            statusLabel.toolTip = error.localizedDescription
         }
     }
 }
 
 @MainActor
 func makeSettingsWindow(close: @escaping () -> Void) -> NSWindow {
-    let host = NSHostingController(rootView: ConnectionSettingsView(close: close))
-    let window = NSWindow(contentViewController: host)
+    let controller = ConnectionSettingsViewController(close: close)
+    let window = NSWindow(contentViewController: controller)
     window.title = L("AskAI 设置", "AskAI Settings")
     window.styleMask = [.titled, .closable]
     window.isReleasedWhenClosed = false
-    window.setContentSize(host.view.fittingSize)
+    controller.view.layoutSubtreeIfNeeded()
+    window.setContentSize(controller.view.fittingSize)
     return window
 }

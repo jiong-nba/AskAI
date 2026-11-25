@@ -1,4 +1,4 @@
-import SwiftUI
+import AppKit
 
 /// 用户自定义的模式：一个名字加一段系统提示词。存在 defaults 的 customModes 里（JSON 数组）。
 struct CustomMode: Codable, Equatable, Identifiable {
@@ -31,13 +31,13 @@ enum CustomModes {
 
 /// 「自定义模式」窗口的状态和规则，与界面分开，方便测试。
 @MainActor
-final class ModesEditor: ObservableObject {
-    @Published var modes: [CustomMode]
-    @Published var selection: String?        // 列表里选中的 key
-    @Published var creating = false          // 正在写一个新的模式
-    @Published var title = ""
-    @Published var prompt = ""
-    @Published var status = ""               // 校验没通过时的说明；通过时为空
+final class ModesEditor {
+    var modes: [CustomMode]
+    var selection: String?        // 列表里选中的 key
+    var creating = false          // 正在写一个新的模式
+    var title = ""
+    var prompt = ""
+    var status = ""               // 校验没通过时的说明；通过时为空
     private let defaults: UserDefaults
     private let onChange: () -> Void
 
@@ -110,64 +110,223 @@ final class ModesEditor: ObservableObject {
     }
 }
 
-struct ModesSettingsView: View {
-    @ObservedObject var editor: ModesEditor
-    @State private var confirmDelete = false
+@MainActor
+private final class ModesSettingsViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate,
+                                                 NSTextFieldDelegate, NSTextViewDelegate {
+    private let editor: ModesEditor
+    private let tableView = NSTableView()
+    private let deleteButton = NSButton()
+    private let nameField = NSTextField()
+    private let promptView = NSTextView()
+    private let statusLabel = NSTextField(wrappingLabelWithString: "")
+    private var updatingSelection = false
 
-    var body: some View {
-        VStack(spacing: 0) {
-            // 列表横向撑满，按钮固定在右边；不给宽度的话整行会缩成一条悬在中间
-            HStack(spacing: 0) {
-                List(editor.modes, selection: $editor.selection) { mode in
-                    Text(mode.title).tag(mode.key)
-                }
-                VStack(spacing: 6) {
-                    Button(L("新增", "Add")) { editor.beginNew() }
-                    Button(L("删除", "Delete")) { confirmDelete = true }
-                        .disabled(editor.selection == nil)
-                }
-                .padding(10)
-            }
-            .frame(height: 170)
-            Divider()
-            Form {
-                TextField(L("名称", "Name"), text: $editor.title)
-                LabeledContent(L("系统提示词", "System prompt")) {
-                    TextEditor(text: $editor.prompt)
-                        .font(.system(size: 13))
-                        .frame(minHeight: 130)
-                }
-                Text(editor.status).foregroundStyle(.secondary).lineLimit(2)
-                HStack {
-                    Spacer()
-                    Button(L("还原", "Revert")) { editor.reloadForm() }.keyboardShortcut(.cancelAction)
-                    Button(L("保存", "Save")) { editor.save() }.keyboardShortcut(.defaultAction)
-                }
-            }
-            .padding(12)
+    init(editor: ModesEditor) {
+        self.editor = editor
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func loadView() {
+        let root = NSView()
+        root.translatesAutoresizingMaskIntoConstraints = false
+        view = root
+
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("title"))
+        tableView.addTableColumn(column)
+        tableView.headerView = nil
+        tableView.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
+        tableView.dataSource = self
+        tableView.delegate = self
+
+        let listScroll = NSScrollView()
+        listScroll.borderType = .bezelBorder
+        listScroll.hasVerticalScroller = true
+        listScroll.documentView = tableView
+
+        let addButton = NSButton(title: L("新增", "Add"), target: self, action: #selector(addMode))
+        addButton.bezelStyle = .rounded
+        deleteButton.title = L("删除", "Delete")
+        deleteButton.bezelStyle = .rounded
+        deleteButton.target = self
+        deleteButton.action = #selector(confirmDelete)
+
+        let listActions = NSStackView(views: [addButton, deleteButton])
+        listActions.orientation = .vertical
+        listActions.alignment = .width
+        listActions.spacing = 6
+
+        let topRow = NSStackView(views: [listScroll, listActions])
+        topRow.alignment = .centerY
+        topRow.spacing = 10
+
+        let divider = NSBox()
+        divider.boxType = .separator
+
+        let nameLabel = NSTextField(labelWithString: L("名称", "Name"))
+        nameLabel.alignment = .right
+        nameField.delegate = self
+
+        let promptLabel = NSTextField(labelWithString: L("系统提示词", "System prompt"))
+        promptLabel.alignment = .right
+
+        let promptScroll = NSScrollView()
+        promptScroll.borderType = .bezelBorder
+        promptScroll.hasVerticalScroller = true
+        promptView.isEditable = true
+        promptView.isRichText = false
+        promptView.isVerticallyResizable = true
+        promptView.autoresizingMask = [.width]
+        promptView.textContainer?.widthTracksTextView = true
+        promptView.font = .systemFont(ofSize: 13)
+        promptView.textColor = .textColor
+        promptView.delegate = self
+        promptScroll.documentView = promptView
+
+        statusLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        statusLabel.textColor = .secondaryLabelColor
+        statusLabel.maximumNumberOfLines = 2
+
+        let revertButton = NSButton(title: L("还原", "Revert"), target: self, action: #selector(revertForm))
+        revertButton.bezelStyle = .rounded
+        revertButton.keyEquivalent = "\u{1b}"
+
+        let saveButton = NSButton(title: L("保存", "Save"), target: self, action: #selector(saveMode))
+        saveButton.bezelStyle = .rounded
+        saveButton.keyEquivalent = "\r"
+
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let bottomActions = NSStackView(views: [spacer, revertButton, saveButton])
+        bottomActions.spacing = 8
+
+        let formGrid = NSGridView(views: [
+            [nameLabel, nameField],
+            [promptLabel, promptScroll],
+        ])
+        formGrid.columnSpacing = 12
+        formGrid.rowSpacing = 10
+        formGrid.column(at: 0).xPlacement = .trailing
+        formGrid.column(at: 1).xPlacement = .fill
+        formGrid.row(at: 1).yPlacement = .top
+
+        let stack = NSStackView(views: [topRow, divider, formGrid, statusLabel, bottomActions])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 12
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            root.widthAnchor.constraint(equalToConstant: 540),
+            stack.topAnchor.constraint(equalTo: root.topAnchor, constant: 12),
+            stack.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -12),
+            stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 12),
+            stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -12),
+            topRow.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            listScroll.heightAnchor.constraint(equalToConstant: 160),
+            divider.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            formGrid.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            promptScroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 130),
+            statusLabel.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            bottomActions.widthAnchor.constraint(equalTo: stack.widthAnchor),
+        ])
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        editor.select(editor.modes.first?.key)
+        syncUI()
+    }
+
+    private func syncUI() {
+        updatingSelection = true
+        tableView.reloadData()
+        if let key = editor.selection, let row = editor.modes.firstIndex(where: { $0.key == key }) {
+            tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        } else {
+            tableView.deselectAll(nil)
         }
-        .frame(width: 540)
-        .onAppear { editor.select(editor.modes.first?.key) }
-        .onChange(of: editor.selection) { _ in
-            // 新建时 selection 会被清空，那不是「选中了别的」
-            if !editor.creating { editor.reloadForm() }
-        }
-        .confirmationDialog(L("删除选中的模式？", "Delete the selected mode?"), isPresented: $confirmDelete,
-                            titleVisibility: .visible) {
-            Button(L("删除", "Delete"), role: .destructive) {
-                if let key = editor.selection { editor.delete(key) }
+        updatingSelection = false
+
+        deleteButton.isEnabled = editor.selection != nil
+        nameField.stringValue = editor.title
+        promptView.string = editor.prompt
+        statusLabel.stringValue = editor.status
+    }
+
+    func numberOfRows(in tableView: NSTableView) -> Int { editor.modes.count }
+
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        let cell = NSTextField(labelWithString: editor.modes[row].title)
+        cell.lineBreakMode = .byTruncatingTail
+        return cell
+    }
+
+    func tableViewSelectionDidChange(_ notification: Notification) {
+        guard !updatingSelection else { return }
+        let row = tableView.selectedRow
+        guard row >= 0, row < editor.modes.count else { return }
+        editor.select(editor.modes[row].key)
+        syncUI()
+    }
+
+    func controlTextDidChange(_ obj: Notification) {
+        editor.title = nameField.stringValue
+    }
+
+    func textDidChange(_ notification: Notification) {
+        editor.prompt = promptView.string
+    }
+
+    @objc private func addMode() {
+        editor.beginNew()
+        syncUI()
+        view.window?.makeFirstResponder(nameField)
+    }
+
+    @objc private func confirmDelete() {
+        guard let key = editor.selection else { return }
+        let alert = NSAlert()
+        alert.messageText = L("删除选中的模式？", "Delete the selected mode?")
+        alert.addButton(withTitle: L("删除", "Delete")).hasDestructiveAction = true
+        alert.addButton(withTitle: L("取消", "Cancel"))
+        if let window = view.window {
+            alert.beginSheetModal(for: window) { [weak self] response in
+                guard response == .alertFirstButtonReturn else { return }
+                Task { @MainActor [weak self] in
+                    self?.editor.delete(key)
+                    self?.syncUI()
+                }
             }
+        } else if alert.runModal() == .alertFirstButtonReturn {
+            editor.delete(key)
+            syncUI()
         }
+    }
+
+    @objc private func revertForm() {
+        editor.reloadForm()
+        syncUI()
+    }
+
+    @objc private func saveMode() {
+        editor.title = nameField.stringValue
+        editor.prompt = promptView.string
+        editor.save()
+        syncUI()
     }
 }
 
 @MainActor
 func makeModesWindow(defaults: UserDefaults = .standard, onChange: @escaping () -> Void) -> NSWindow {
-    let host = NSHostingController(rootView: ModesSettingsView(editor: ModesEditor(defaults: defaults, onChange: onChange)))
-    let window = NSWindow(contentViewController: host)
+    let controller = ModesSettingsViewController(editor: ModesEditor(defaults: defaults, onChange: onChange))
+    let window = NSWindow(contentViewController: controller)
     window.title = L("自定义模式", "Custom Modes")
     window.styleMask = [.titled, .closable]
     window.isReleasedWhenClosed = false
-    window.setContentSize(host.view.fittingSize)
+    controller.view.layoutSubtreeIfNeeded()
+    window.setContentSize(controller.view.fittingSize)
     return window
 }

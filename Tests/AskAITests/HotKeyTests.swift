@@ -1,6 +1,5 @@
 import AppKit
 import Carbon
-import HotKey
 import Testing
 @testable import AskAI
 
