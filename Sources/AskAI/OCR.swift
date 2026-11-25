@@ -23,6 +23,7 @@ func ocrText(from url: URL) -> String? {
     let request = VNRecognizeTextRequest()
     request.recognitionLevel = .accurate
     request.usesLanguageCorrection = true
+    request.automaticallyDetectsLanguage = true
     request.recognitionLanguages = ["zh-Hans", "en-US"]
     try? VNImageRequestHandler(cgImage: cg, options: [:]).perform([request])
 

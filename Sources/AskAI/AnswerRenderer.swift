@@ -64,6 +64,13 @@ extension ResultPanel {
         return result
     }
 
+    /// 提取回答中最后一个非空围栏代码块内容，供 ⌘⇧C 快速复制代码使用。
+    nonisolated static func lastCodeBlock(in markdown: String) -> String? {
+        guard let block = splitCodeBlocks(markdown).last(where: { $0.isCode })?.text else { return nil }
+        let trimmed = block.hasSuffix("\n") ? String(block.dropLast()) : block
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     /// 把回答切成「普通段落」和「围栏代码块」。围栏行本身不显示，它占的那一处换行保留，
     /// 所以其余各行的位置不变。流式输出时代码块常常还没闭合：从开头的围栏到文末都算代码；
     /// 每次都按全文重新切分，闭合之后自然恢复。
