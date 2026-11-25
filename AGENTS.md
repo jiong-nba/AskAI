@@ -22,6 +22,7 @@ Sources/AskAI/ChatClient.swift        # chat completions request and SSE stream 
 Sources/AskAI/OCR.swift               # region capture and Vision OCR
 Sources/AskAI/Selection.swift         # Accessibility and pasteboard capture
 Sources/AskAI/ResultPanel.swift       # per-selection requests and result controls
+Sources/AskAI/AnswerRenderer.swift    # Markdown → attributed text for the panel, code-block background drawing
 Sources/AskAI/ConnectionSettings.swift # live provider configuration and native settings
 Sources/AskAI/ModesSettings.swift      # user-defined prompt modes and the window that edits them
 Package.swift              # SwiftPM manifest, depends on HotKey
@@ -93,7 +94,7 @@ closures that cross into nonisolated code must be `@Sendable` (streaming callbac
 - User-facing strings go through `L(zh, en)`; never hardcode a single language in UI code. Docs are bilingual and must stay in sync
 - Split by responsibility, not by size: `AppDelegate.swift` (menu, recorder, window lifecycle), `CLI.swift`,
   `History.swift`, `HotKeys.swift`, `ChatClient.swift`, `OCR.swift`, `PromptMode.swift`, `Selection.swift`
-  (capture), `ResultPanel.swift` (panel + per-selection requests), `ConnectionSettings.swift` (provider config
+  (capture), `ResultPanel.swift` (panel + per-selection requests), `AnswerRenderer.swift` (Markdown rendering and code-block layout), `ConnectionSettings.swift` (provider config
   and settings UI). `main.swift` is only the entry point. Give a new responsibility its own file rather than
   letting any file grow past ~900 lines
 - Comments explain *why*, not *what*
