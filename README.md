@@ -31,7 +31,7 @@ Native Swift menu-bar app with no Dock icon.
 - **Launch at login** — native `SMAppService` toggle in Settings (when running from `AskAI.app`)
 - **Custom hotkeys** — configure independent hotkeys for **Explain Selection** (default `⌘⇧E`), **Ask Directly** (unset by default), and **Explain from Screen** (unset by default) under 🤖 → **Set Hotkeys**; the recorder warns about conflicts with other apps or other AskAI actions, and optional hotkeys can be cleared with Delete or **Clear Shortcut**
 - **Any OpenAI-compatible endpoint** — DeepSeek, OpenAI, Ollama, etc. Settings offers the common addresses as presets, and endpoints on `localhost` need no API key
-- **Reader background for Explain** — explanations are for a general reader by default. In Settings, choose a background such as software engineering and databases, or type your own. Clear the field to return to general explanations.
+- **Reader background for Explain** — explanations are for a general reader by default. Settings offers six bilingual presets: software engineering and databases, business and economics, natural sciences, arts and humanities, design, and education. Each adds a specific instruction to the Explain prompt. For example, engineering emphasizes mechanisms and boundary cases, while business emphasizes incentives and trade-offs. A background you type guides the depth and examples. Clear the field to return to general explanations.
 - **Answer language of its own** — answers follow the UI language by default; choose Chinese or English separately in Settings
 - **Custom modes** — add your own modes (a name and a system prompt) via 🤖 → "Manage Modes…"; they appear in the Mode menu and in the panel's mode picker
 
