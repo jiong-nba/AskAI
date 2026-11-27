@@ -1,0 +1,98 @@
+name: Desktop packages
+on:
+  pull_request:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  mac:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check embedded prompts
+        run: python3 scripts/generate-prompts.py && git diff --exit-code -- Sources/AskAI/ExplainCatalog.swift
+      - name: Package and verify macOS arm64
+        shell: bash
+        run: |
+          ASKAI_SIGN_ID=- ./make-app.sh
+          version=$(defaults read "${PWD}/AskAI.app/Contents/Info.plist" CFBundleShortVersionString)
+          if [[ "${GITHUB_REF_TYPE}" == tag ]]; then test "${GITHUB_REF_NAME}" = "v${version}"; fi
+          asset="AskAI-v${version}-macos-arm64.zip"
+          ditto -c -k --norsrc --noextattr --noqtn --keepParent AskAI.app "${asset}"
+          test "$(unzip -Z1 "${asset}" | wc -l | tr -d ' ')" = 7
+          if unzip -Z1 "${asset}" | grep -E '(__MACOSX|/\._)'; then exit 1; fi
+          unzip -q "${asset}" -d "${RUNNER_TEMP}/verify"
+          bundle="${RUNNER_TEMP}/verify/AskAI.app"
+          codesign --verify --strict --deep "${bundle}"
+          test "$(lipo -archs "${bundle}/Contents/MacOS/AskAI")" = arm64
+          test "$(defaults read "${bundle}/Contents/Info.plist" CFBundleShortVersionString)" = "${version}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64
+          path: AskAI-v*-macos-arm64.zip
+          if-no-files-found: error
+
+  windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build, test and verify Windows x64
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path make-app.sh -Pattern '^APP_VERSION="([0-9.]+)"$').Matches.Groups[1].Value
+          if (!$version -or ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version")) { throw 'Version mismatch' }
+          dotnet build Tests/Windows/AskAI.Windows.Tests.csproj -c Release "-p:Version=$version"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python Tests/Windows/test_client.py Tests/Windows/bin/Release/net48/AskAI.Windows.Tests.exe
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $bin = "Windows/bin/Release/net48"
+          $archive = "AskAI-v$version-windows-x64.zip"
+          Compress-Archive -Path "$bin/AskAI.exe", "$bin/AskAI.exe.config" -DestinationPath $archive
+          Expand-Archive $archive -DestinationPath "$env:RUNNER_TEMP/repacked"
+          $exe = "$env:RUNNER_TEMP/repacked/AskAI.exe"
+          if ((Get-Item $exe).VersionInfo.FileVersion -ne "$version.0") { throw 'Executable version mismatch' }
+          $app = Start-Process $exe -PassThru
+          try {
+            if (!$app.WaitForInputIdle(10000)) { throw 'App did not start' }
+            Start-Sleep -Seconds 2
+            $app.Refresh()
+            if ($app.HasExited -or $app.MainWindowTitle -ne 'AskAI') { throw 'AskAI window missing' }
+          } finally { if (!$app.HasExited) { $app.Kill() } }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          path: AskAI-v*-windows-x64.zip
+          if-no-files-found: error
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: [mac, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: packages
+          merge-multiple: true
+      - name: Publish both verified packages together
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          cd packages
+          assets=("AskAI-${tag}-macos-arm64.zip" "AskAI-${tag}-windows-x64.zip")
+          sha256sum "${assets[@]}" > SHA256SUMS
+          cp ../.github/desktop-release-notes.md notes.md
+          echo "Built from tag ${tag}, commit $(git rev-parse HEAD)." >> notes.md
+          echo '~~~' >> notes.md
+          cat SHA256SUMS >> notes.md
+          echo '~~~' >> notes.md
+          gh release create "${tag}" --verify-tag --draft --title "AskAI ${tag}" --notes-file notes.md "${assets[@]}"
+          gh release download "${tag}" --pattern '*.zip' --dir verify
+          (cd verify && sha256sum --check ../SHA256SUMS)
+          gh release edit "${tag}" --draft=false
