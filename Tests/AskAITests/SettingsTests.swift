@@ -89,7 +89,7 @@ struct SettingsTests {
         #expect(AnswerLanguage.stored(defaults: defaults) == nil)
 
         let explain = historyMode("explain")
-        #expect(explain.systemPrompt(language: .english).hasSuffix("Answer in English."))
+        #expect(explain.systemPrompt(language: .english).contains("in English"))
         #expect(explain.systemPrompt(language: .chinese).contains("简体中文"))
         #expect(explain.systemPrompt(language: .english) != explain.systemPrompt(language: .chinese))
         // A single-prompt mode (the connection test, custom modes) reads the same in both languages.
@@ -108,6 +108,12 @@ struct SettingsTests {
             let explain = currentMode(in: defaults)
             let general = explain.systemPrompt(defaults: defaults)
             #expect(general.contains(language == "zh" ? "普通读者" : "general reader"))
+            for profile in ExplainCatalog.profiles {
+                for label in [profile.en, profile.zh] {
+                    defaults.set(label, forKey: "explainBackground")
+                    #expect(explain.systemPrompt(defaults: defaults).contains(language == "zh" ? profile.hintZh : profile.hintEn))
+                }
+            }
             draft.explainBackground = " Art history "
             try draft.save(to: defaults, environmentKey: nil)
             #expect(ConnectionDraft(defaults: defaults).explainBackground == "Art history")

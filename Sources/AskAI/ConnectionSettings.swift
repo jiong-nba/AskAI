@@ -255,11 +255,7 @@ private final class ConnectionSettingsViewController: NSViewController, NSTextFi
         languagePopup.action = #selector(fieldChanged)
 
         backgroundField.placeholderString = L("通用（可选择或输入背景）", "General (choose or type a background)")
-        backgroundField.addItems(withObjectValues: [
-            L("软件工程与数据库", "Software engineering and databases"),
-            L("设计", "Design"),
-            L("教育", "Education"),
-        ])
+        backgroundField.addItems(withObjectValues: ExplainCatalog.profiles.map { L($0.zh, $0.en) })
         backgroundField.stringValue = draft.explainBackground
 
         saveHistoryCheckbox.state = draft.savesHistory ? .on : .off

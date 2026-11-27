@@ -53,27 +53,21 @@ struct PromptMode {
         let prompt = language == .chinese ? chinese : english
         guard key == "explain" else { return prompt }
         let reader = background.trimmingCharacters(in: .whitespacesAndNewlines)
+        let guidance: String
         if reader.isEmpty {
-            return (language == .chinese ? "请面向普通读者解释。" : "Explain for a general reader. ") + prompt
+            guidance = language == .chinese ? ExplainCatalog.generalZh : ExplainCatalog.generalEn
+        } else if let profile = ExplainCatalog.profiles.first(where: { $0.en == reader || $0.zh == reader }) {
+            guidance = language == .chinese ? profile.hintZh : profile.hintEn
+        } else {
+            guidance = (language == .chinese ? ExplainCatalog.customZh : ExplainCatalog.customEn) + " · " + reader
         }
-        return (language == .chinese ? "读者背景：\(reader)。" : "Reader background: \(reader). ") + prompt
+        return guidance + "\n" + prompt
     }
 
     static let builtin: [PromptMode] = [
         PromptMode(key: "explain",
                    title: L("解释名词", "Explain"),
-                   chinese:
-                     "你是名词/术语解释助手。用户给出的通常是一个名词、术语或一小段文字。"
-                   + "请用简体中文解释：如果原文是英文单词或术语，开头先给出它的中文翻译或对应说法；"
-                   + "然后用一句话说清它是什么，再补充关键背景、机制或一个例子。"
-                   + "根据原文语境判断词义，有歧义时点明。"
-                   + "不要翻译腔。控制在 150 字以内。",
-                   english:
-                     "You explain terms in plain language. "
-                   + "The user usually gives a single term or a short phrase. Start with a one-line plain definition, "
-                   + "then add the key mechanism or a concrete example. Use the context to determine the meaning and call out "
-                   + "ambiguity when it exists. "
-                   + "Keep it under 120 words. Answer in English."),
+                   chinese: ExplainCatalog.baseZh, english: ExplainCatalog.baseEn),
         PromptMode(key: "translate",
                    title: L("翻译", "Translate"),
                    chinese:
