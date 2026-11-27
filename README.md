@@ -31,6 +31,7 @@ Native Swift menu-bar app with no Dock icon.
 - **Launch at login** — native `SMAppService` toggle in Settings (when running from `AskAI.app`)
 - **Custom hotkeys** — configure independent hotkeys for **Explain Selection** (default `⌘⇧E`), **Ask Directly** (unset by default), and **Explain from Screen** (unset by default) under 🤖 → **Set Hotkeys**; the recorder warns about conflicts with other apps or other AskAI actions, and optional hotkeys can be cleared with Delete or **Clear Shortcut**
 - **Any OpenAI-compatible endpoint** — DeepSeek, OpenAI, Ollama, etc. Settings offers the common addresses as presets, and endpoints on `localhost` need no API key
+- **Reader background for Explain** — explanations are for a general reader by default. In Settings, choose a background such as software engineering and databases, or type your own. Clear the field to return to general explanations.
 - **Answer language of its own** — answers follow the UI language by default; choose Chinese or English separately in Settings
 - **Custom modes** — add your own modes (a name and a system prompt) via 🤖 → "Manage Modes…"; they appear in the Mode menu and in the panel's mode picker
 
@@ -80,6 +81,7 @@ Settings and the CLI share the same `defaults` preferences. Test Connection send
 | UI language | `defaults write com.dsh.AskAI lang en` (or `zh`; default follows macOS) |
 | Temperature | `defaults write com.dsh.AskAI temperature 0.3` (0–2; `-1` = do not send it and use the provider default. OpenAI's reasoning models such as the o-series and GPT-5 reject any other value, so use `-1` for them) |
 | Copy fallback wait | `defaults write com.dsh.AskAI copyTimeoutMs 350` (how long to wait for ⌘C before falling back to screenshot OCR; raise it for slow apps, 100–5000) |
+| Reader background (Explain) | `defaults write com.dsh.AskAI explainBackground "Art history"` (empty or unset = general reader) |
 | Answer language | `defaults write com.dsh.AskAI answerLanguage zh` (or `en`; unset = follow the UI language) |
 | Save history | `defaults write com.dsh.AskAI saveHistory false` (stop adding entries; existing ones stay until you clear them) |
 | Panel font size | `defaults write com.dsh.AskAI panelFontSize 14` (11–22 pt; also changed via ⌘+/⌘-/⌘0 in the panel) |
