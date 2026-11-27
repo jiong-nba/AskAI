@@ -97,6 +97,30 @@ struct SettingsTests {
         #expect(probe.systemPrompt(language: .chinese) == "Reply with OK." && probe.systemPrompt(language: .english) == "Reply with OK.")
     }
 
+    @Test func readerBackgroundOnlyAffectsExplain() throws {
+        let defaults = InMemoryDefaults()
+        var draft = ConnectionDraft(defaults: defaults)
+        draft.savedKey = "fixture-key"
+        for language in ["zh", "en"] {
+            draft.answerLanguage = language
+            draft.explainBackground = ""
+            try draft.save(to: defaults, environmentKey: nil)
+            let explain = currentMode(in: defaults)
+            let general = explain.systemPrompt(defaults: defaults)
+            #expect(general.contains(language == "zh" ? "普通读者" : "general reader"))
+            draft.explainBackground = " Art history "
+            try draft.save(to: defaults, environmentKey: nil)
+            #expect(ConnectionDraft(defaults: defaults).explainBackground == "Art history")
+            #expect(explain.systemPrompt(defaults: defaults).contains("Art history"))
+            for mode in PromptMode.all(defaults: defaults) where mode.key != "explain" {
+                #expect(!mode.systemPrompt(defaults: defaults).contains("Art history"))
+            }
+            draft.explainBackground = "   "
+            try draft.save(to: defaults, environmentKey: nil)
+            #expect(explain.systemPrompt(defaults: defaults) == general)
+        }
+    }
+
     @Test func settingsRoundTripThroughTheDraft() throws {
         let defaults = InMemoryDefaults()
         var draft = ConnectionDraft(defaults: defaults)

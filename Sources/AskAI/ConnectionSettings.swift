@@ -111,6 +111,7 @@ struct ConnectionDraft: Equatable {
     var limit: String
     var temperature: String
     var answerLanguage: String      // "" 跟随界面，或 zh / en
+    var explainBackground: String
     var savesHistory: Bool
 
     init(defaults: UserDefaults = .standard) {
@@ -121,6 +122,7 @@ struct ConnectionDraft: Equatable {
         limit = String(current.summaryLimit)
         temperature = current.temperature.map { "\($0)" } ?? "-1"
         answerLanguage = AnswerLanguage.stored(defaults: defaults)?.rawValue ?? ""
+        explainBackground = defaults.string(forKey: "explainBackground") ?? ""
         savesHistory = historySavingEnabled(defaults: defaults)
     }
 
@@ -171,6 +173,7 @@ struct ConnectionDraft: Equatable {
         } else {
             defaults.set(answerLanguage, forKey: "answerLanguage")
         }
+        defaults.set(explainBackground.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "explainBackground")
         defaults.set(savesHistory, forKey: "saveHistory")
     }
 }
@@ -188,6 +191,7 @@ private final class ConnectionSettingsViewController: NSViewController, NSTextFi
     private let keyField = NSSecureTextField()
     private let limitField = NSTextField()
     private let temperatureField = NSTextField()
+    private let backgroundField = NSComboBox()
     private let languagePopup = NSPopUpButton()
     private let saveHistoryCheckbox = NSButton(checkboxWithTitle: L("保存历史记录", "Save history"), target: nil, action: nil)
     private let launchAtLoginCheckbox = NSButton(checkboxWithTitle: L("登录时自动启动", "Launch at login"), target: nil, action: nil)
@@ -250,6 +254,14 @@ private final class ConnectionSettingsViewController: NSViewController, NSTextFi
         languagePopup.target = self
         languagePopup.action = #selector(fieldChanged)
 
+        backgroundField.placeholderString = L("通用（可选择或输入背景）", "General (choose or type a background)")
+        backgroundField.addItems(withObjectValues: [
+            L("软件工程与数据库", "Software engineering and databases"),
+            L("设计", "Design"),
+            L("教育", "Education"),
+        ])
+        backgroundField.stringValue = draft.explainBackground
+
         saveHistoryCheckbox.state = draft.savesHistory ? .on : .off
         saveHistoryCheckbox.target = self
         saveHistoryCheckbox.action = #selector(fieldChanged)
@@ -286,6 +298,7 @@ private final class ConnectionSettingsViewController: NSViewController, NSTextFi
 
         let answerGrid = NSGridView(views: [
             row(L("回答语言", "Answer language"), languagePopup),
+            row(L("解释名词 · 读者背景", "Explain · Reader background"), backgroundField),
             row("", saveHistoryCheckbox),
             row("", launchAtLoginCheckbox),
         ])
@@ -293,6 +306,8 @@ private final class ConnectionSettingsViewController: NSViewController, NSTextFi
         answerGrid.rowSpacing = 10
         answerGrid.column(at: 0).xPlacement = .trailing
         answerGrid.column(at: 1).xPlacement = .leading
+
+        answerGrid.cell(atColumnIndex: 1, rowIndex: 1).xPlacement = .fill
 
         statusLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         statusLabel.textColor = .secondaryLabelColor
@@ -356,6 +371,7 @@ private final class ConnectionSettingsViewController: NSViewController, NSTextFi
         draft.limit = limitField.stringValue
         draft.temperature = temperatureField.stringValue
         draft.answerLanguage = languagePopup.selectedItem?.representedObject as? String ?? ""
+        draft.explainBackground = backgroundField.stringValue
         draft.savesHistory = saveHistoryCheckbox.state == .on
     }
 
