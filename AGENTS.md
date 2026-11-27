@@ -4,7 +4,7 @@ Instructions for AI coding agents (and human contributors) working on this repos
 
 ## What this project is
 
-Native macOS menu-bar and Windows tray clients. The macOS app that reads the current selection, sends it to an
+Native macOS menu-bar and Windows tray clients. The macOS app reads the current selection, sends it to an
 OpenAI-compatible endpoint, and streams the answer into a floating panel. CLI regression tests use a local HTTP fixture. The app has no server side.
 
 ## Layout

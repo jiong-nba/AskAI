@@ -28,6 +28,11 @@ class Fixture(BaseHTTPRequestHandler):
 
 
 with HTTPServer(("127.0.0.1", 0), Fixture) as server:
-    Thread(target=server.serve_forever, daemon=True).start()
-    subprocess.run([sys.argv[1], f"http://127.0.0.1:{server.server_port}/v1/chat/completions"],
-                   check=True, timeout=30)
+    worker = Thread(target=server.serve_forever)
+    worker.start()
+    try:
+        subprocess.run([sys.argv[1], f"http://127.0.0.1:{server.server_port}/v1/chat/completions"],
+                       check=True, timeout=30)
+    finally:
+        server.shutdown()
+        worker.join()
