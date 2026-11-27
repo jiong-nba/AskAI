@@ -1,17 +1,24 @@
-# AskAI — Ask AI about any selected text on macOS
+# AskAI — Ask AI about selected text on macOS and Windows
 
-A tiny menu-bar app for macOS: **select text anywhere → press a hotkey → a floating window streams an explanation from your LLM**.
+A desktop app for macOS and Windows: **select text anywhere → press a hotkey → a floating window streams an explanation from your LLM**.
 
-Native Swift menu-bar app with no Dock icon.
+Open AskAI from the macOS menu bar or the Windows system tray.
 
-[Download for Mac (Apple Silicon)](https://github.com/jiong-nba/AskAI/releases/latest) · macOS 13 or later
+[Download for macOS (Apple Silicon) and Windows x64](https://github.com/jiong-nba/AskAI/releases/latest) · macOS 13 or later
 
-> Not a translation tool. The default *Explain* mode tells you what a term means in plain Chinese,
+> Not a translation tool. The default *Explain* mode tells you what a term means in plain language,
 > then adds context and an example. Three more modes are included: Translate, Summarize, Explain Code.
 
 **Languages:** English | [简体中文](README.zh-CN.md)
 
-## Features
+## Windows 10/11 x64
+
+The first Windows client includes a tray icon, global selection hotkey, manual input, streaming explanations with Stop, and the same six Explain presets as macOS. It requires .NET Framework 4.8. Extract the entire `AskAI-v1.4.0-windows-x64.zip` (or a later Windows ZIP) from the release page and open `AskAI.exe`. To build now on Windows, install the .NET SDK and .NET Framework 4.8 targeting pack and run `dotnet build Windows/AskAI.csproj -c Release`.
+
+Open Settings and enter the full chat completions endpoint, model and API key (optional for localhost). Choose an answer language and reader background. Select text and press **Ctrl+Shift+E**. In apps without a readable selection, paste the text into AskAI and click Explain. Closing the window sends it to the tray. Right-click the icon to quit. Settings are stored per Windows user. Windows protects the stored key with DPAPI, and `ASKAI_KEY` takes precedence.
+
+
+## macOS features
 
 - **Explain selection** — select text, press the hotkey, watch the answer stream in;
   it auto-scrolls while you stay at the bottom.
@@ -35,7 +42,7 @@ Native Swift menu-bar app with no Dock icon.
 - **Answer language of its own** — answers follow the UI language by default; choose Chinese or English separately in Settings
 - **Custom modes** — add your own modes (a name and a system prompt) via 🤖 → "Manage Modes…"; they appear in the Mode menu and in the panel's mode picker
 
-## Quick start
+## macOS quick start
 
 1. Download the ZIP from the release page, unzip it, move `AskAI.app` to Applications, and open it.
 2. On first launch, pick your provider in Settings (or enter its chat completions endpoint), then the model and API key. Endpoints on `localhost` need no key. Click **Test Connection**, then **Save**. Reopen Settings from the 🤖 menu to change providers for the next query. For v1.1.1 and earlier downloads, use the configuration commands below.
@@ -65,7 +72,7 @@ Without it, text capture fails and the app falls back to screenshot OCR
 The screenshot itself needs **Screen Recording** permission (System Settings → Privacy & Security →
 Screen Recording): until it is granted, the capture has no window content and OCR finds no text.
 
-## Configuration
+## macOS configuration
 
 Settings and the CLI share the same `defaults` preferences. Test Connection sends a fixed probe to the endpoint in the form.
 

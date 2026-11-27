@@ -11,3 +11,7 @@ AskAI.app/
 # 本地临时文件
 *.pem
 *.p12
+Windows/bin/
+Windows/obj/
+Tests/Windows/bin/
+Tests/Windows/obj/

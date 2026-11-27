@@ -4,7 +4,7 @@ Instructions for AI coding agents (and human contributors) working on this repos
 
 ## What this project is
 
-A native macOS menu-bar app that reads the current selection, sends it to an
+Native macOS menu-bar and Windows tray clients. The macOS app reads the current selection, sends it to an
 OpenAI-compatible endpoint, and streams the answer into a floating panel. CLI regression tests use a local HTTP fixture. The app has no server side.
 
 ## Layout
@@ -126,13 +126,15 @@ and a documentation change belong in separate commits (ideally separate PRs).
 
 ## Release process
 
+The desktop-packages workflow builds and verifies macOS arm64 and Windows x64 on PRs. Pushing a version tag builds both ZIPs from that tag, creates a draft, downloads and checks both hashes, then publishes the pair. Update .github/desktop-release-notes.md for each release. For changes to the shared Explain catalog, edit Shared/explain.json and run python3 scripts/generate-prompts.py.
+
 Before tagging, set `APP_VERSION` in `make-app.sh` to the release version without the leading `v`.
 
 ```bash
 git tag v1.x.y && git push origin v1.x.y
 ```
 
-Then build a distribution zip from a **separate temp bundle** (never overwrite the installed `AskAI.app`),
+For a manual recovery, build the macOS distribution zip from a **separate temp bundle** (never overwrite the installed `AskAI.app`),
 ad-hoc sign it, and attach it to a GitHub release with install steps that mention both configuration paths
 (`defaults write` and `ASKAI_KEY`) plus a `--check` step. The asset is ad-hoc signed and not notarized, so the
 steps must also say how to get past Gatekeeper (System Settings → Privacy & Security → Open Anyway on macOS 15

@@ -1,16 +1,23 @@
-# AskAI —— macOS 划词问 AI 小工具
+# AskAI —— macOS 与 Windows 划词问 AI 小工具
 
 在任意 App 里**选中文字 → 按快捷键 → 浮窗流式显示 AI 解释**。
-原生 Swift 菜单栏应用，无 Dock 图标。
+在 macOS 菜单栏或 Windows 系统托盘打开 AskAI。
 
-[下载 Mac 版（Apple Silicon）](https://github.com/jiong-nba/AskAI/releases/latest) · macOS 13 或更高版本
+[下载 macOS（Apple Silicon）与 Windows x64 版](https://github.com/jiong-nba/AskAI/releases/latest) · macOS 13 或更高版本
 
 > 不是翻译工具：解释模式会先用中文说清这个词是什么，再补背景与例子。
 > 另有翻译、总结、代码讲解三种模式。
 
 **语言：** [English](README.md) | 简体中文
 
-## 功能
+## Windows 10/11 x64
+
+Windows 首版支持托盘、全局划词快捷键、手动输入、流式解释和停止，以及与 macOS 共用的六种领域提示词。需要 .NET Framework 4.8。从发布页选择 `AskAI-v1.4.0-windows-x64.zip`（或更新版本的 Windows ZIP），完整解压后打开 `AskAI.exe`。也可在 Windows 安装 .NET SDK 和 .NET Framework 4.8 开发包后运行 `dotnet build Windows/AskAI.csproj -c Release` 从源码构建。
+
+打开「设置」，填入聊天接口完整地址、模型和 API Key（本机接口可留空），选择回答语言和读者背景。选中文字后按 **Ctrl+Shift+E**；应用未提供可读选区时，可在 AskAI 窗口粘贴文字后点「解释」。关闭窗口会收起到托盘，右键托盘图标可退出。设置按 Windows 用户保存，密钥由 Windows 用户凭据保护，`ASKAI_KEY` 优先于保存的密钥。
+
+
+## macOS 功能
 
 - **划词解释**：选中文字 → 快捷键 → 流式逐字显示，停在底部时自动跟随滚动。
   回答中断时，浮窗保留已收到的文字并显示错误。只有完整回答才会进入历史记录。
@@ -33,7 +40,7 @@
 - **回答语言单独设置**：默认跟随界面语言，也可以在设置里单独选简体中文或 English
 - **自定义模式**：在菜单栏 🤖 →「自定义模式…」里加自己的模式（名称 + 系统提示词），会出现在「模式」菜单和浮窗的模式下拉里
 
-## 快速开始
+## macOS 快速开始
 
 1. 从发布页下载 ZIP，解压后将 `AskAI.app` 拖入「应用程序」并打开。
 2. 首次启动时，在设置窗选择服务商预设（或填入聊天接口完整地址），再填模型和 API Key（本机 localhost 接口不需要 Key），点「测试连接」，然后保存。之后可从菜单栏 🤖 →「设置…」修改，保存后对下一次查询生效。若下载的是 v1.1.1 或更早版本，可用下方配置表里的命令配置。
@@ -62,7 +69,7 @@ open AskAI.app
 截图这一步需要「屏幕录制」权限（系统设置 → 隐私与安全性 → 屏幕录制与系统录音）：
 授权之前截到的画面里没有窗口内容，OCR 也就识别不到文字。
 
-## 配置
+## macOS 配置
 
 原生设置窗与命令行共用 `defaults`。连接测试只向当前填写的接口发送一条固定的测试消息。
 
