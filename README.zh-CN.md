@@ -29,6 +29,7 @@
 - **开机自启**：在设置窗通过系统原生 `SMAppService` 一键开关登录时自动启动（在 `.app` 包内生效）
 - **快捷键自定义**：在菜单栏 🤖 →「设置快捷键」子菜单里分别设置「划词询问」（默认 `⌘⇧E`）、「直接提问」（默认未设置）与「截图解释」（默认未设置）；与其他应用或本应用其他快捷键冲突时会提示，可选快捷键可用 Delete 或「清除快捷键」清空
 - **兼容任意 OpenAI 格式接口**：DeepSeek / OpenAI / 本地 Ollama 等。设置里提供常见服务商的地址预设；本机（localhost）接口不需要 Key
+- **解释名词的读者背景**：默认面向普通读者。可选软件工程与数据库、商业与经济、自然科学、人文与艺术、设计、教育六种预设。每种都会加入专门的解释要求，例如工程背景侧重机制和边界条件，商业背景侧重激励和权衡。自行填写的背景用于调整深度和例子。清空后恢复通用解释。
 - **回答语言单独设置**：默认跟随界面语言，也可以在设置里单独选简体中文或 English
 - **自定义模式**：在菜单栏 🤖 →「自定义模式…」里加自己的模式（名称 + 系统提示词），会出现在「模式」菜单和浮窗的模式下拉里
 
@@ -77,6 +78,7 @@ open AskAI.app
 | 界面语言 | `defaults write com.dsh.AskAI lang zh`（或 `en`；默认跟随系统） |
 | Temperature | `defaults write com.dsh.AskAI temperature 0.3`（0–2；`-1` 表示不发送、用服务商默认值。OpenAI 的推理模型如 o 系列、GPT-5 只接受默认值，请设为 `-1`） |
 | ⌘C 回退等待 | `defaults write com.dsh.AskAI copyTimeoutMs 350`（等 ⌘C 生效的毫秒数，超时则落到截图 OCR；目标应用响应慢可调大，范围 100–5000） |
+| 读者背景（解释名词） | `defaults write com.dsh.AskAI explainBackground "艺术史"`（留空或未设置时面向普通读者） |
 | 回答语言 | `defaults write com.dsh.AskAI answerLanguage zh`（或 `en`；不设则跟随界面语言） |
 | 保存历史 | `defaults write com.dsh.AskAI saveHistory false`（不再记录新条目；已有的保留到手动清空） |
 | 浮窗字号 | `defaults write com.dsh.AskAI panelFontSize 14`（11–22 pt；也可在浮窗内按 ⌘+/⌘-/⌘0 调整） |

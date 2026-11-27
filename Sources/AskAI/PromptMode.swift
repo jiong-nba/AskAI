@@ -42,27 +42,32 @@ struct PromptMode {
     }
 
     /// 当前回答语言下的系统提示词。回答语言与界面语言可以不同，所以不能在建表时就用 L() 定死。
-    var system: String { systemPrompt(language: AnswerLanguage.current()) }
+    var system: String { systemPrompt(defaults: .standard) }
 
-    func systemPrompt(language: AnswerLanguage) -> String {
-        language == .chinese ? chinese : english
+    func systemPrompt(defaults: UserDefaults) -> String {
+        systemPrompt(language: AnswerLanguage.current(defaults: defaults),
+                     background: defaults.string(forKey: "explainBackground") ?? "")
+    }
+
+    func systemPrompt(language: AnswerLanguage, background: String = "") -> String {
+        let prompt = language == .chinese ? chinese : english
+        guard key == "explain" else { return prompt }
+        let reader = background.trimmingCharacters(in: .whitespacesAndNewlines)
+        let guidance: String
+        if reader.isEmpty {
+            guidance = language == .chinese ? ExplainCatalog.generalZh : ExplainCatalog.generalEn
+        } else if let profile = ExplainCatalog.profiles.first(where: { $0.en == reader || $0.zh == reader }) {
+            guidance = language == .chinese ? profile.hintZh : profile.hintEn
+        } else {
+            guidance = (language == .chinese ? ExplainCatalog.customZh : ExplainCatalog.customEn) + " · " + reader
+        }
+        return guidance + "\n" + prompt
     }
 
     static let builtin: [PromptMode] = [
         PromptMode(key: "explain",
                    title: L("解释名词", "Explain"),
-                   chinese:
-                     "你是名词/术语解释助手，读者有计算机/数据库/软件工程背景。用户给出的通常是一个名词、术语或一小段文字。"
-                   + "请用简体中文解释：如果原文是英文单词或术语，开头先给出它的中文翻译或对应说法；"
-                   + "然后用一句话说清它是什么，再补充关键背景、机制或一个例子。"
-                   + "技术术语优先按其领域含义解释（有歧义时点明），但不要预设具体技术栈、产品名或内部语境。"
-                   + "不要翻译腔。控制在 150 字以内。",
-                   english:
-                     "You explain terms for an engineer with a computer science / database / software engineering background. "
-                   + "The user usually gives a single term or a short phrase. Start with a one-line plain definition, "
-                   + "then add the key mechanism or a concrete example. Prefer the technical meaning of the term and call out "
-                   + "ambiguity when it exists, but do not assume a specific stack, product or private context. "
-                   + "Keep it under 120 words. Answer in English."),
+                   chinese: ExplainCatalog.baseZh, english: ExplainCatalog.baseEn),
         PromptMode(key: "translate",
                    title: L("翻译", "Translate"),
                    chinese:

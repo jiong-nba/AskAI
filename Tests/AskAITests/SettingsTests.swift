@@ -89,12 +89,42 @@ struct SettingsTests {
         #expect(AnswerLanguage.stored(defaults: defaults) == nil)
 
         let explain = historyMode("explain")
-        #expect(explain.systemPrompt(language: .english).hasSuffix("Answer in English."))
+        #expect(explain.systemPrompt(language: .english).contains("in English"))
         #expect(explain.systemPrompt(language: .chinese).contains("简体中文"))
         #expect(explain.systemPrompt(language: .english) != explain.systemPrompt(language: .chinese))
         // A single-prompt mode (the connection test, custom modes) reads the same in both languages.
         let probe = PromptMode(key: "test", title: "", system: "Reply with OK.")
         #expect(probe.systemPrompt(language: .chinese) == "Reply with OK." && probe.systemPrompt(language: .english) == "Reply with OK.")
+    }
+
+    @Test func readerBackgroundOnlyAffectsExplain() throws {
+        let defaults = InMemoryDefaults()
+        var draft = ConnectionDraft(defaults: defaults)
+        draft.savedKey = "fixture-key"
+        for language in ["zh", "en"] {
+            draft.answerLanguage = language
+            draft.explainBackground = ""
+            try draft.save(to: defaults, environmentKey: nil)
+            let explain = currentMode(in: defaults)
+            let general = explain.systemPrompt(defaults: defaults)
+            #expect(general.contains(language == "zh" ? "普通读者" : "general reader"))
+            for profile in ExplainCatalog.profiles {
+                for label in [profile.en, profile.zh] {
+                    defaults.set(label, forKey: "explainBackground")
+                    #expect(explain.systemPrompt(defaults: defaults).contains(language == "zh" ? profile.hintZh : profile.hintEn))
+                }
+            }
+            draft.explainBackground = " Art history "
+            try draft.save(to: defaults, environmentKey: nil)
+            #expect(ConnectionDraft(defaults: defaults).explainBackground == "Art history")
+            #expect(explain.systemPrompt(defaults: defaults).contains("Art history"))
+            for mode in PromptMode.all(defaults: defaults) where mode.key != "explain" {
+                #expect(!mode.systemPrompt(defaults: defaults).contains("Art history"))
+            }
+            draft.explainBackground = "   "
+            try draft.save(to: defaults, environmentKey: nil)
+            #expect(explain.systemPrompt(defaults: defaults) == general)
+        }
     }
 
     @Test func settingsRoundTripThroughTheDraft() throws {
