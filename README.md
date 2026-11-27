@@ -4,7 +4,7 @@ A desktop app for macOS and Windows: **select text anywhere → press a hotkey �
 
 Open AskAI from the macOS menu bar or the Windows system tray.
 
-[Download for Mac (Apple Silicon)](https://github.com/jiong-nba/AskAI/releases/latest) · macOS 13 or later
+[Download for macOS (Apple Silicon) and Windows x64](https://github.com/jiong-nba/AskAI/releases/latest) · macOS 13 or later
 
 > Not a translation tool. The default *Explain* mode tells you what a term means in plain language,
 > then adds context and an example. Three more modes are included: Translate, Summarize, Explain Code.
@@ -13,7 +13,7 @@ Open AskAI from the macOS menu bar or the Windows system tray.
 
 ## Windows 10/11 x64
 
-The first Windows client includes a tray icon, global selection hotkey, manual input, streaming explanations with Stop, and the same six Explain presets as macOS. It requires .NET Framework 4.8. Starting with the next dual-platform release, extract the entire `windows-x64.zip` from the release page and open `AskAI.exe`. To build now on Windows, install the .NET SDK and .NET Framework 4.8 targeting pack and run `dotnet build Windows/AskAI.csproj -c Release`.
+The first Windows client includes a tray icon, global selection hotkey, manual input, streaming explanations with Stop, and the same six Explain presets as macOS. It requires .NET Framework 4.8. Extract the entire `AskAI-v1.4.0-windows-x64.zip` (or a later Windows ZIP) from the release page and open `AskAI.exe`. To build now on Windows, install the .NET SDK and .NET Framework 4.8 targeting pack and run `dotnet build Windows/AskAI.csproj -c Release`.
 
 Open Settings and enter the full chat completions endpoint, model and API key (optional for localhost). Choose an answer language and reader background. Select text and press **Ctrl+Shift+E**. In apps without a readable selection, paste the text into AskAI and click Explain. Closing the window sends it to the tray. Right-click the icon to quit. Settings are stored per Windows user. Windows protects the stored key with DPAPI, and `ASKAI_KEY` takes precedence.
 

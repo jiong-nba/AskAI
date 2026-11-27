@@ -3,7 +3,7 @@
 在任意 App 里**选中文字 → 按快捷键 → 浮窗流式显示 AI 解释**。
 在 macOS 菜单栏或 Windows 系统托盘打开 AskAI。
 
-[下载 Mac 版（Apple Silicon）](https://github.com/jiong-nba/AskAI/releases/latest) · macOS 13 或更高版本
+[下载 macOS（Apple Silicon）与 Windows x64 版](https://github.com/jiong-nba/AskAI/releases/latest) · macOS 13 或更高版本
 
 > 不是翻译工具：解释模式会先用中文说清这个词是什么，再补背景与例子。
 > 另有翻译、总结、代码讲解三种模式。
@@ -12,7 +12,7 @@
 
 ## Windows 10/11 x64
 
-Windows 首版支持托盘、全局划词快捷键、手动输入、流式解释和停止，以及与 macOS 共用的六种领域提示词。需要 .NET Framework 4.8。下一次双平台发布时，从同一发布页选择 `windows-x64.zip`，完整解压后打开 `AskAI.exe`。也可在 Windows 安装 .NET SDK 和 .NET Framework 4.8 开发包后运行 `dotnet build Windows/AskAI.csproj -c Release` 从源码构建。
+Windows 首版支持托盘、全局划词快捷键、手动输入、流式解释和停止，以及与 macOS 共用的六种领域提示词。需要 .NET Framework 4.8。从发布页选择 `AskAI-v1.4.0-windows-x64.zip`（或更新版本的 Windows ZIP），完整解压后打开 `AskAI.exe`。也可在 Windows 安装 .NET SDK 和 .NET Framework 4.8 开发包后运行 `dotnet build Windows/AskAI.csproj -c Release` 从源码构建。
 
 打开「设置」，填入聊天接口完整地址、模型和 API Key（本机接口可留空），选择回答语言和读者背景。选中文字后按 **Ctrl+Shift+E**；应用未提供可读选区时，可在 AskAI 窗口粘贴文字后点「解释」。关闭窗口会收起到托盘，右键托盘图标可退出。设置按 Windows 用户保存，密钥由 Windows 用户凭据保护，`ASKAI_KEY` 优先于保存的密钥。
 
